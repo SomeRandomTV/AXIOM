@@ -1,0 +1,185 @@
+import bpy
+import math
+from mathutils import Vector
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader
+
+# -------------------------
+# Surface Encoder Definition
+# -------------------------
+class SurfaceEncoder(nn.Module):
+    def __init__(self, input_dim=9, latent_dim=32):
+        super(SurfaceEncoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, latent_dim)
+        )
+
+    def forward(self, token_tensor):
+        norm = torch.nn.functional.normalize(token_tensor, dim=1)
+        return self.encoder(norm)
+
+# -------------------------
+# Pretty Printer
+# -------------------------
+def print_token_as_grid(token):
+    center = token[0]
+    deltas = token[1:]
+    labels = [
+        ("↖", deltas[4]), ("↑", deltas[0]), ("↗", deltas[5]),
+        ("←", deltas[2]), ("C", center),    ("→", deltas[3]),
+        ("↙", deltas[6]), ("↓", deltas[1]), ("↘", deltas[7]),
+    ]
+    print("\nSurface Token Grid (Depth deltas):")
+    print(f"{labels[0][0]} {labels[1][0]} {labels[2][0]}    →    {labels[0][1]: .6f} {labels[1][1]: .6f} {labels[2][1]: .6f}")
+    print(f"{labels[3][0]} {labels[4][0]} {labels[5][0]}    →    {labels[3][1]: .6f} {labels[4][1]: .6f} {labels[5][1]: .6f}")
+    print(f"{labels[6][0]} {labels[7][0]} {labels[8][0]}    →    {labels[6][1]: .6f} {labels[7][1]: .6f} {labels[8][1]: .6f}")
+
+# -------------------------
+# 8-connected Neighborhood
+# -------------------------
+def get_neighbors(depth_grid, i, j):
+    neighbors = []
+    H, W = depth_grid.shape
+    offsets = [(-1, 0), (1, 0), (0, -1), (0, 1),
+               (-1, -1), (-1, 1), (1, -1), (1, 1)]
+    for dy, dx in offsets:
+        ni, nj = i + dy, j + dx
+        if 0 <= ni < H and 0 <= nj < W:
+            neighbors.append(depth_grid[ni][nj])
+        else:
+            neighbors.append(0.0)
+    return np.array(neighbors)
+
+# -------------------------
+# Token Generator
+# -------------------------
+def tokenize_patch(center_depth, neighbor_depths):
+    deltas = neighbor_depths - center_depth
+    token = np.concatenate(([center_depth], deltas))
+    return token
+
+# -------------------------
+# Flash LiDAR Scanner
+# -------------------------
+def fov_scan(origin, h_fov=90, v_fov=60, res_x=100, res_y=60, max_distance=100.0):
+    scene = bpy.context.scene
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    depth_grid = np.zeros((res_y, res_x))
+    h_start = -h_fov / 2
+    v_start = -v_fov / 2
+    h_step = h_fov / (res_x - 1)
+    v_step = v_fov / (res_y - 1)
+
+    for row in range(res_y):
+        for col in range(res_x):
+            h_angle = math.radians(h_start + col * h_step)
+            v_angle = math.radians(v_start + row * v_step)
+            x = math.cos(v_angle) * math.cos(h_angle)
+            y = math.cos(v_angle) * math.sin(h_angle)
+            z = math.sin(v_angle)
+            direction = Vector((x, y, z)).normalized()
+            hit, location, _, _, _, _ = scene.ray_cast(
+                depsgraph, origin, direction, distance=max_distance
+            )
+            distance = (location - origin).length if hit else max_distance
+            depth_grid[row, col] = distance
+
+    return depth_grid
+
+# -------------------------
+# Learned Quantization Layer
+# -------------------------
+class LatentQuantizer(nn.Module):
+    def __init__(self, latent_dim=32):
+        super(LatentQuantizer, self).__init__()
+        self.project = nn.Sequential(
+            nn.Linear(latent_dim, latent_dim),
+            nn.Tanh(),
+            nn.Linear(latent_dim, latent_dim)
+        )
+
+    def forward(self, latent_tensor):
+        return self.project(latent_tensor)
+
+quantizer = LatentQuantizer(latent_dim=32)
+
+# -------------------------
+# Prototype & Memory Init
+# -------------------------
+encoder = SurfaceEncoder(input_dim=9, latent_dim=32)
+latent_memory = {}
+epoch_memory = []
+epoch_limit = 5
+scan_limit = 2000
+optimizer = torch.optim.Adam(list(encoder.parameters()) + list(quantizer.parameters()), lr=0.001)
+criterion = nn.MSELoss()
+encoder.train()
+quantizer.train()
+
+# -------------------------
+# Repeated Scanning Loop
+# -------------------------
+scan_count = 0
+while scan_count < scan_limit:
+    for obj in bpy.data.objects:
+        if obj.name.startswith("Cube"):
+            print(f"Scanning object: {obj.name} (Scan {scan_count+1}/{scan_limit})")
+            depth_grid = fov_scan(obj.location)
+            H, W = depth_grid.shape
+            token_list = []
+            latent_list = []
+
+            for i in range(H):
+                for j in range(W):
+                    center_depth = depth_grid[i][j]
+                    neighbors = get_neighbors(depth_grid, i, j)
+                    token = tokenize_patch(center_depth, neighbors)
+                    token_tensor = torch.tensor(token, dtype=torch.float32)
+                    token_list.append(token_tensor)
+
+            token_batch = torch.stack(token_list)
+            normalized_tokens = torch.nn.functional.normalize(token_batch, dim=1)
+            latent_batch = encoder(normalized_tokens)
+            quantized = quantizer(latent_batch)
+
+            # Similarity-based merging
+            for latent_vec in quantized:
+                found = False
+                for existing_key, record in latent_memory.items():
+                    existing_vec = record['center']
+                    dist = torch.norm(latent_vec - existing_vec)
+                    if dist < 0.5:  # epsilon threshold
+                        record['count'] += 1
+                        record['center'] = (existing_vec * (record['count'] - 1) + latent_vec) / record['count']
+                        found = True
+                        break
+                if not found:
+                    latent_memory[len(latent_memory)] = {'count': 1, 'center': latent_vec.detach()}
+
+            epoch_memory.extend(zip(token_list, latent_batch.detach()))
+
+            if len(epoch_memory) >= epoch_limit * 100:
+                tokens, targets = zip(*epoch_memory)
+                dataset = TensorDataset(torch.stack(tokens), torch.stack(targets))
+                dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+
+                for inputs, targets in dataloader:
+                    outputs = encoder(torch.nn.functional.normalize(inputs, dim=1))
+                    loss = criterion(outputs, targets)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                epoch_memory = []
+                print("Trained on accumulated frames")
+
+            print("Frame recorded. Total unique token patterns:", len(latent_memory))
+            scan_count += 1
+            if scan_count >= scan_limit:
+                break
+        else:
+            print(f"{obj.name} is not a cube, skipping.")
