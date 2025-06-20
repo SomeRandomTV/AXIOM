@@ -27,15 +27,21 @@ and improve care through AI-driven insights.
  Tech Stack
 
 Backend: \
- Python &rarr; Axiom/ML \
+ Python &rarr; Axiom/ML 
 
 AI/ML: \
 NLP &rarr; command/parameter extraction \
-ComputerVision $rarr; Reading labels/detecting abnormal behaviors\
-3D LiDAR &rarr; 3D mapping ofr environment for pose/hazard detection \
+ComputerVision &rarr; Reading labels/detecting abnormal behaviors\
+3D LiDAR &rarr; 3D mapping of environment for pose/hazard detection \
 
 Operating System: \
-C/ASM
+C/ASM, etc
 
 Hardware: \
 I dont know yet
+
+---
+
+## How things are going to connect/communicate with each other
+
+stuff
