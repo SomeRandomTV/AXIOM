@@ -3,7 +3,7 @@ import certifi
 import warnings
 import speech_recognition as sr
 import whisper
-
+#Something
 # load SSL file for whisper
 os.environ['SSL_CERT_FILE'] = certifi.where()
 # suppress warnings

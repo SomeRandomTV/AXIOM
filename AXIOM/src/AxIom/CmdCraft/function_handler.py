@@ -36,7 +36,7 @@ class FunctionHandler:
         self.function_name = None
         self.function_params = None
         self.function_calls = []
-        # Set API keus
+        # Set API keussssss
         self.WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
         self.NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 

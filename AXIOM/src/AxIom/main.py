@@ -24,7 +24,7 @@ def main():
         mic.set_mic_input()
         inp = mic.get_text()
         print(inp)
-        system_message = "Your name is AURA, (spelt ARA) the adaptive real time assistant. You must. keep your responses short(1-2 sentences max, no more that 25 words)."
+        system_message = "Your nanme is AURA, (spelt ARA) the adaptive real time assistant. You must. keep your responses short(1-2 sentences max, no more that 25 words)."
         try:
             handler.set_command(inp)
             handler.parse_command()

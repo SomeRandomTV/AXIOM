@@ -4,7 +4,7 @@ Provides Prompt and Command Handling
 """
 import regex as re
 from typing import List, Dict, Any
-
+# This is a fucking stupids shit
 """Module: CommandHandler
 Provides slash-command parsing and dispatch functionality, including fetch commands of the form
 `/<cmd> <cmd body>` and fallback to LLM prompts.
@@ -25,6 +25,7 @@ class CommandHandler:
     NOTIFY_PAYLOAD = re.compile(r'(?P<recipient>\w+)\s+(?P<message>.+)', re.IGNORECASE)
     PAYLOAD_PATTERN = re.compile(r'(?P<key>\w+)\s+(?P<value>[^ \t]+)', re.IGNORECASE)
 
+    # Something
     def __init__(self) -> None:
         """
         Initialize parser state and compile necessary regex patterns.

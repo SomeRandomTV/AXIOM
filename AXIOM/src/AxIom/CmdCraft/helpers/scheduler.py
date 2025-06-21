@@ -14,6 +14,7 @@ def get_calendar_service():
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
     if not creds or not creds.valid:
+        print("Authorization failed.")
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:

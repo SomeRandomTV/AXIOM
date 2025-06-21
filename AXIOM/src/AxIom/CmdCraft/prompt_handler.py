@@ -18,7 +18,7 @@ class PromptHandler:
 
         # check if URL is not provided
         if not url:
-            raise ValueError("LLM_URL not set")
+            raise ValueError("LLM_URL nnot set")
         self.url = url or os.getenv("LLM_URL")
         self.model = model
     def send_prompt(self,messages: List[Dict[str, str]],stream: bool = False) -> Dict[str, Any]:

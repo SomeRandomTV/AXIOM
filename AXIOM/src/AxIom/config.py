@@ -3,7 +3,7 @@
 
 import os
 from dotenv import load_dotenv
-
+#Something
 load_dotenv()
 
 newsapi_key = os.getenv("NEWSAPI_KEY")

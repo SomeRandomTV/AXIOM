@@ -1,4 +1,5 @@
 # The Mic-Handler
+Something
 
 Here user input(audio) is transcribed into text to be sent to CmdCraft/Command-Handler. \
 Using pythons `speech recognition` and openai `whisper` we can get a pretty accurate \

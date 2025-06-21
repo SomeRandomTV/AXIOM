@@ -143,3 +143,4 @@ sequenceDiagram
 - FunctionHandler **does not** validate the command syntax — that is the Command-Handler’s job.
 - All actual function logic (e.g., API calls) resides here.
 - Used only after commands are parsed and validated.
+#Something
