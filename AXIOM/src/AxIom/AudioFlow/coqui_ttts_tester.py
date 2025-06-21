@@ -35,25 +35,40 @@ class CoquiTttsTester:
             raise ValueError("Language Unknown or Not supported")
 
 
-    def list_speakers(self):
+    def list_speakers(self) -> None:
         speakers_len = len(self.speakers)
 
         for speaker in range(speakers_len):
             print(f"Speaker {speaker}: {self.speakers[speaker]}")
 
-    def list_models(self):
+    def list_models(self) -> None:
         model_len = len(self.models)
         for model in range(model_len):
             print(f"Model {model}: {self.models[model]}")
 
-    def speak(self, text):
+    def generate_speech(self, text) -> None:
         self.text_to_speak = text
+
+        self.tts.tts_to_file(
+            text=text,
+            speaker= self.speaker,
+            language="en",
+            file_path="output.wav"
+        )
+
+    def speak(self):
+        """
+        Speak the text from audio file
+        """
+
+
 
 
 def main():
     tts_engine = CoquiTttsTester()
     tts_engine.list_speakers()
     tts_engine.list_models()
+    print(type(tts_engine.generate_speech("hello world")))
 
 if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@ import requests
 from typing import Dict, Any
 from dotenv import load_dotenv
 from newsapi import  NewsApiClient
-from .scheduler import get_calendar_service
+from scheduler import get_calendar_service
 
 load_dotenv()
 # environment variables
@@ -42,8 +42,6 @@ class FunctionHandler:
 
         # initialize news api client
         self.newsapi = NewsApiClient(api_key=self.NEWS_API_KEY)
-
-
 
     def set_function_call(self, function_name: str, function_params: Dict[str, Any]) -> None:
         self.function_name = function_name

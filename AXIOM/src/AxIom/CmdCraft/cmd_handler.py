@@ -67,6 +67,7 @@ class CommandHandler:
         """
         Here we will determine the type of command
         and prepare the function call with all its parameters.
+
         :raises ValueError: On missing or invalid command syntax, or unsupported function.
         """
         # check if the rest of the command is given
@@ -176,6 +177,7 @@ class CommandHandler:
     def get_commands(self) -> List[Dict[str, Any]]:
         """
         Return the parsed command as a list of dictionaries.
+
         :return: List of dictionaries, each containing 'cmd' and 'rest' keys.
         """
         return self.function_calls
