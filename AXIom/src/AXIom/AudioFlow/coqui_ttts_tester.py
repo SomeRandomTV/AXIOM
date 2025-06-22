@@ -13,15 +13,17 @@ class CoquiTttsTester:
         self.stream   = None
 
     def generate_and_play(self, text):
-        # Step 1: neural net → numpy array
+        # Generate the audio
         wav = self.tts.tts(
             text=text,
             speaker=self.speaker,
             language=self.language
         )
-        wav = np.array(wav, dtype=np.float32) # convert to numpy array
+
+        # Convert to numpy array
+        wav = np.array(wav, dtype=np.float32)
         rate = 25000
-        # Step 2: open stream (once) at correct sample rate/format
+        # Check if there is audio to play
         if self.stream is None:
             self.stream = self.p.open(
                 format     = pyaudio.paFloat32,
@@ -29,7 +31,7 @@ class CoquiTttsTester:
                 rate       = rate,
                 output     = True
             )
-        # Step 3: write raw bytes
+        # Play the audio in RAM
         self.stream.write(wav.astype(np.float32).tobytes())
 
 
