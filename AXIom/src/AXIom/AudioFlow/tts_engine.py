@@ -1,106 +1,97 @@
-import io
 import os
-from dotenv import load_dotenv
-from elevenlabs import ElevenLabs, play
+import torch
 import numpy as np
-import soundfile as sf
-from pydub import AudioSegment
-#Something
-class TTS_Engine:
-    def __init__(self, model_name: str = None, voice_id: str = None,sample_rate: int = 44100) -> None:
-        """
-        Initialize the ElevenLabs TTS engine
+import pyaudio
+from huggingface_hub import snapshot_download
+from TTS.tts.configs.xtts_config import XttsConfig
+from TTS.tts.models.xtts import Xtts
 
-        :param model_name: ElevenLabs model ID (falls back to DEFAULT_MODEL env var).
-        :param voice_id: ElevenLabs voice ID (falls back to DEFAULT_VOICE_ID env var).
-        :param sample_rate: output sample rate for WAV files & playback.
-        """
-        load_dotenv()
-
-        self.xi_api_key = os.getenv("XI_API_KEY")
-        if not self.xi_api_key:
-            raise ValueError("XI_API_KEY not set in environment")
-
-        self.client = ElevenLabs(api_key=self.xi_api_key)
-        self.model_name = model_name or os.getenv("DEFAULT_MODEL")
-        self.voice_id = voice_id or os.getenv("DEFAULT_VOICE_ID")
-        self.sample_rate = sample_rate
-
-        if not self.model_name:
-            raise ValueError("Model ID not set (pass one or set DEFAULT_MODEL)")
-        if not self.voice_id:
-            raise ValueError("Voice ID not set (pass one or set DEFAULT_VOICE_ID)")
-
-    def list_speakers(self) -> list[str]:
-        """
-        Return list of available ElevenLabs voice IDs
-        :return: list of voice IDs
-        """
-        resp = self.client.voices.search(include_total_count=True)
-        return [v.voice_id for v in resp.voices]
-
-    def generate_speech(self, text: str, speaker: str = None) -> np.ndarray:
-        """
-        Synthesize speech from text, returning a NumPy array of floats in [-1,1].
-
-        :param text: text to synthesize.
-        :param speaker: overrides default voice ID for this utterance.
-        :return: float32 numpy array of audio samples.
-        """
-        spk = speaker or self.voice_id
-
-        # generate MP3 audio using ElevenLabs
-        stream = self.client.text_to_speech.convert(
-            voice_id=spk,
-            model_id=self.model_name,
-            text=text,
-            output_format="mp3_44100_128"
+class TTSEngine:
+    def __init__(
+        self,
+        model_repo_id: str = "coqui/XTTS-v2",
+        repo_type: str = "model",
+        speaker_wav: str = "speaker_reference.wav",
+        language: str = "en",
+        device: str = None,
+        cache_dir: str = "./model_cache",
+    ):
+        # Download the HF model repository (includes config, vocab, merges, checkpoint)
+        self.model_path = snapshot_download(
+            repo_id=model_repo_id,
+            repo_type=repo_type,
+            cache_dir=cache_dir,
         )
 
-        # join chunks if needed
-        audio_bytes = b"".join(stream) if not isinstance(stream, (bytes, bytearray)) else stream
+        # Load XTTS configuration
+        config = XttsConfig()
+        config_file = os.path.join(self.model_path, "config.json")
+        config.load_json(config_file)
 
-        # decode MP3 bytes to AudioSegment
-        audio_seg = AudioSegment.from_file(io.BytesIO(audio_bytes), format="mp3")
-        # set sample rate
-        self.sample_rate = audio_seg.frame_rate
+        # Ensure tokenizer files point to the downloaded repo
+        tok_file = getattr(config.model_args, 'tokenizer_file', None)
+        if tok_file:
+            config.model_args.tokenizer_file = os.path.join(self.model_path, tok_file)
+        merge_file = getattr(config.model_args, 'merge_file', None)
+        if merge_file:
+            config.model_args.merge_file = os.path.join(self.model_path, merge_file)
 
-        # PCM -> float32
-        pcm_int16 = np.frombuffer(audio_seg.raw_data, dtype=np.int16)
-        # normalize to [-1,1]
-        wav = pcm_int16.astype(np.float32) / np.iinfo(np.int16).max
-        # return wav
-        return wav
+        # Initialize XTTS model
+        self.model = Xtts.init_from_config(config)
+        self.model.load_checkpoint(config, checkpoint_dir=self.model_path)
 
-    def write_audio(self, wav: np.ndarray, path: str = "out.wav") -> None:
-        """
-        Save the audio array to a WAV file
+        # Move model to device
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(torch.device(self.device))
+        self.language = language
 
-        :param wav: float32 numpy array of audio samples.
-        :param path: output file path (e.g. "out.wav").
-        """
-        sf.write(path, wav, self.sample_rate)
-
-    def speak(self, text: str, speaker: str = None) -> None:
-        """
-        Synthesize and play text through speakers using ElevenLabs built-in play().
-        :param text:    Text to speak.
-        :param speaker: Overrides default voice ID for this utterance.
-        """
-        spk = speaker or self.voice_id
-        stream = self.client.text_to_speech.convert(
-            voice_id=spk,
-            model_id=self.model_name,
-            text=text,
-            output_format="mp3_44100_128",
+        # Precompute speaker and GPT latents from reference audio
+        gpt_latent, speaker_embed = self.model.get_conditioning_latents(
+            audio_path=[speaker_wav]
         )
-        # play the audio
-        play(stream)
+        self.gpt_latent = gpt_latent.to(self.device)
+        self.speaker_embed = speaker_embed.to(self.device)
 
+        # PyAudio setup (match model sample rate, default 24000 Hz)
+        self.pyaudio = pyaudio.PyAudio()
+        self.rate = config.audio.output_sample_rate
+        self.stream = None
 
-def main():
-    tts = TTS_Engine()
-    print(tts.list_speakers())
+    def stream_speak(self, text: str) -> None:
+        # Lazily open the audio stream
+        if self.stream is None:
+            self.stream = self.pyaudio.open(
+                format=pyaudio.paFloat32,
+                channels=1,
+                rate=self.rate,
+                output=True,
+            )
 
+        # Stream inference chunks as PCM audio
+        for chunk in self.model.inference_stream(
+            text,
+            self.language,
+            self.gpt_latent,
+            self.speaker_embed,
+        ):
+            pcm = chunk.cpu().numpy().astype(np.float32)
+            self.stream.write(pcm.tobytes())
+
+    def close(self):
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
+        self.pyaudio.terminate()
+
+# Example usage
 if __name__ == "__main__":
-    main()
+    engine = TTSEngine(
+        model_repo_id="coqui/XTTS-v2",
+        speaker_wav="speech_reference.wav"
+    )
+    try:
+        print("Streaming with proper tokenizer files now.")
+        engine.stream_speak("Hello! Streaming with proper tokenizer files now.")
+        engine.stream_speak("This is a test of the streaming API and latency.")
+    finally:
+        engine.close()

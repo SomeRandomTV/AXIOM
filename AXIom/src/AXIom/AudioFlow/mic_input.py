@@ -41,11 +41,11 @@ class MicInput:
             # record the audio
             audio = self.recognizer.listen(source)
             # write the recorded audio to a file to be transcribed(TODO 'change to transcribe in MEMORY not I/O')
-            with open("output.wav", "wb") as f:
+            with open("speech_reference.wav", "wb") as f:
                 f.write(audio.get_wav_data())
             try:
                 # transcribe with whisper
-                result = self.model.transcribe("output.wav")
+                result = self.model.transcribe("speech_reference.wav")
                 self.text = result["text"]
 
             except Exception as e:

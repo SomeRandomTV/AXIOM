@@ -45,3 +45,37 @@ I dont know yet
 ## How things are going to connect/communicate with each other
 
 stuff
+
+```mermaid
+graph TB
+    subgraph AXIom[AXIom Core]
+        Main[main.py] --> Config[config.py]
+        
+        subgraph AudioFlow[AudioFlow Module]
+            TTS[tts_engine.py] --> CoquiTester[coqui_ttts_tester.py]
+            MicInput[mic_input.py] --> Whisper[Whisper API]
+            MicInput --> PyAudio[PyAudio]
+            TTS --> PyAudio
+        end
+        
+        subgraph CmdCraft[CmdCraft Module]
+            CMD[cmd_handler.py] --> FuncHandler[function_handler.py]
+            CMD --> PromptHandler[prompt_handler.py]
+            FuncHandler --> Scheduler[helpers/scheduler.py]
+        end
+        
+        Main --> AudioFlow
+        Main --> CmdCraft
+    end
+    
+    subgraph External[External Services]
+        PromptHandler --> LLM[LLM API]
+        TTS --> CoquiAPI[Coqui TTS API]
+    end
+    
+    classDef module fill:#f9f,stroke:#333,stroke-width:2px
+    classDef external fill:#bbf,stroke:#333,stroke-width:2px
+    class AudioFlow,CmdCraft module
+    class External,LLM,CoquiAPI external
+
+```
