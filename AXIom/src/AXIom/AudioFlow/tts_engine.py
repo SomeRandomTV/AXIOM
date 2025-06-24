@@ -6,29 +6,40 @@ from huggingface_hub import snapshot_download
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 
+"""
+Module: TTSEngine
+Provides TTS functionality using CoquiTTS
+This module is based on the XTTS implementation,
+and tries to stream the audio chunks to the user
+for lower latency
+"""
 class TTSEngine:
-    def __init__(
-        self,
-        model_repo_id: str = "coqui/XTTS-v2",
-        repo_type: str = "model",
-        speaker_wav: str = "speaker_reference.wav",
-        language: str = "en",
-        device: str = None,
-        cache_dir: str = "./model_cache",
-    ):
-        # Download the HF model repository (includes config, vocab, merges, checkpoint)
+    """
+    Initialize the TTS engine, with the model ID and a speaker refrence audio file
+    And load the low-level configurations to stream thje audio
+    Very very rigged, kinda shit but theres something here
+
+    :param model_repo_id: Hugging Face model repository ID
+    :param repo_type: type of model repository (default: "model")
+    :param speaker_wav: path-to-speaker reference audio file(YOU NEED THIS)
+    :param device: device to use for inference (default: "cuda" if available, else "cpu")
+    :param cache_dir: directory to cache downloaded models (default: "./model_cache")
+    :param language: language to use for inference (default: "en")
+    """
+    def __init__(self, model_repo_id: str = "coqui/XTTS-v2", repo_type: str = "model", speaker_wav: str = "speaker_reference.wav", language: str = "en", device: str = None, cache_dir: str = "./model_cache",):
+        # download the HF model repository (includes config.json, vocab.json, merges.json, checkpoint.json)
         self.model_path = snapshot_download(
             repo_id=model_repo_id,
             repo_type=repo_type,
             cache_dir=cache_dir,
         )
 
-        # Load XTTS configuration
+        # load XTTS configuration
         config = XttsConfig()
         config_file = os.path.join(self.model_path, "config.json")
         config.load_json(config_file)
 
-        # Ensure tokenizer files point to the downloaded repo
+        # make sure to use the correct tokenizer files and they point to the downloaded repo
         tok_file = getattr(config.model_args, 'tokenizer_file', None)
         if tok_file:
             config.model_args.tokenizer_file = os.path.join(self.model_path, tok_file)
@@ -36,16 +47,16 @@ class TTSEngine:
         if merge_file:
             config.model_args.merge_file = os.path.join(self.model_path, merge_file)
 
-        # Initialize XTTS model
+        # initialize XTTS model
         self.model = Xtts.init_from_config(config)
-        self.model.load_checkpoint(config, checkpoint_dir=self.model_path)
+        self.model.load_checkpoint(config, checkpoint_dir=self.model_path) # IDE may tell you to remove this, don't
 
-        # Move model to device
+        # move model to device(will be sent to cpu because we have no gpus available, especially w cuda)
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(torch.device(self.device))
         self.language = language
 
-        # Precompute speaker and GPT latents from reference audio
+        # precompute speaker from reference audio
         gpt_latent, speaker_embed = self.model.get_conditioning_latents(
             audio_path=[speaker_wav]
         )
@@ -58,7 +69,8 @@ class TTSEngine:
         self.stream = None
 
     def stream_speak(self, text: str) -> None:
-        # Lazily open the audio stream
+        # lazily open the audio stream, trusting that it will be closed before the program exits
+        # everything from this point down is jerry rigged to work with the XTTS model, kinda works, kinda doesn't
         if self.stream is None:
             self.stream = self.pyaudio.open(
                 format=pyaudio.paFloat32,
@@ -67,7 +79,8 @@ class TTSEngine:
                 output=True,
             )
 
-        # Stream inference chunks as PCM audio
+        # stream inference chunks as PCM audio, or it tries
+        # some shit is causing some gaps in between chunks, so TODO: fix this
         for chunk in self.model.inference_stream(
             text,
             self.language,
@@ -83,15 +96,15 @@ class TTSEngine:
             self.stream.close()
         self.pyaudio.terminate()
 
-# Example usage
+
 if __name__ == "__main__":
-    engine = TTSEngine(
-        model_repo_id="coqui/XTTS-v2",
-        speaker_wav="speech_reference.wav"
-    )
+    engine = TTSEngine(model_repo_id="coqui/XTTS-v2", speaker_wav="speech_reference.wav")
     try:
         print("Streaming with proper tokenizer files now.")
         engine.stream_speak("Hello! Streaming with proper tokenizer files now.")
         engine.stream_speak("This is a test of the streaming API and latency.")
+    except Exception as e:
+        print("An error occurred:", e)
+        print("Terminating stream...")
     finally:
         engine.close()
