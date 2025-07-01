@@ -10,6 +10,7 @@ __all__ = [
 
     "CommandHandler",
     "PromptHandler",
-    "FunctionHandler"
+    "FunctionHandler",
+    "scheduler"
 
 ]

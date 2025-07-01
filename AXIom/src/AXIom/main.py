@@ -6,25 +6,29 @@ All external files will be called here
 import os
 from CmdCraft import cmd_handler as ch
 from CmdCraft import prompt_handler as ph
-from AudioFlow import tts_engine as te
-from AudioFlow import mic_input as se
+from AudioFlow import tts_handler as te
+from AudioFlow import mic_handler as se
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 LLM_URL = os.getenv("LLM_URL")
 
 
 def main():
+    print("Initializing components...")
     handler = ch.CommandHandler()
     p_handler = ph.PromptHandler(url=LLM_URL)
-    tts = te.TTS_Engine()
-    mic = se.MicInput()
+    tts = te.TTSHandler()
+    mic = se.MicHandler()
+    print("Components initialized.")
 
+    print("Starting the AXIom...")
     while True:
         mic.set_mic_input()
         inp = mic.get_text()
         print(inp)
-        system_message = "Your nanme is AURA, (spelt ARA) the adaptive real time assistant. You must. keep your responses short(1-2 sentences max, no more that 25 words)."
+        system_message = "Your nane is AURA, (spelt ARA) the adaptive real time assistant. You must. keep your responses short(1-2 sentences max, no more that 25 words)."
         try:
             handler.set_command(inp)
             handler.parse_command()
@@ -32,16 +36,22 @@ def main():
             if handler.function_flag == 1:
                 print("→ Function call:", handler.function_call)
                 print("→ Target:", handler.target)
-                tts.speak(f"Calling {handler.function_call} with parameters {handler.target}")
+                tts.speak("Calling function...")
+
             else:
                 print("Going to llm...")
-                messages = [{"role": "user", "context": system_message, "content": inp}]
+                messages = [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": inp}
+                ]
                 result = p_handler.send_prompt(messages)
-                print(f"Result: {result["message"]["content"]}")
-                tts.speak(result["message"]["content"])
+                print(f"ARA: {result["message"]["content"]}")
+                response = result["message"]["content"]
+                tts.speak(response)
 
             command = handler.get_commands()
             print(f"\nCommand: {command}")
+            time.sleep(0.5)
         except ValueError as err:
             print("→ Error:", err)
 

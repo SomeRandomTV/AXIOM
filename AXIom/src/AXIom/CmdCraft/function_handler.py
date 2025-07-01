@@ -4,7 +4,7 @@ import requests
 from typing import Dict, Any
 from dotenv import load_dotenv
 from newsapi import  NewsApiClient
-from scheduler import get_calendar_service
+
 
 load_dotenv()
 # environment variables
@@ -36,7 +36,7 @@ class FunctionHandler:
         self.function_name = None
         self.function_params = None
         self.function_calls = []
-        # Set API keussssss
+        # Set API keys
         self.WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
         self.NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
@@ -131,24 +131,24 @@ class FunctionHandler:
         print(f"\n{'=' * 75}\n")
         print(f"Scheduling {event_title} for {user} at {event_time}")
 
-        service = get_calendar_service()
-
-        event = {
-            'summary': event_title,
-            'description': f"Scheduled by ARA for {user}",
-            'start': {
-                'dateTime': event_time,
-                'timeZone': 'America/Chicago',
-            },
-            'end': {
-                'dateTime': event_time,  # Ideally add duration
-                'timeZone': 'America/Chicago',
-            }
-        }
-
-        created_event = service.events().insert(calendarId='primary', body=event).execute()
-        print(f"Event created: {created_event.get('htmlLink')}")
-        print(f"\n{'=' * 75}\n")
+        # service = get_calendar_service()
+        #
+        # event = {
+        #     'summary': event_title,
+        #     'description': f"Scheduled by ARA for {user}",
+        #     'start': {
+        #         'dateTime': event_time,
+        #         'timeZone': 'America/Chicago',
+        #     },
+        #     'end': {
+        #         'dateTime': event_time,  # Ideally add duration
+        #         'timeZone': 'America/Chicago',
+        #     }
+        # }
+        #
+        # created_event = service.events().insert(calendarId='primary', body=event).execute()
+        # print(f"Event created: {created_event.get('htmlLink')}")
+        # print(f"\n{'=' * 75}\n")
 
     def notify(self, **kwargs):
         recipient = kwargs.get("recipient")

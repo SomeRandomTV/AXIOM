@@ -1,8 +1,8 @@
-from .mic_input import MicInput
+from .mic_handler import MicHandler
 
-from .coqui_ttts_tester import CoquiTttsTester
+from .tts_handler import TTSHandler
 #Something
 __all__ = [
-    "MicInput",
-    "CoquiTttsTester",
+    "MicHandler",
+    "TTSHandler",
 ]

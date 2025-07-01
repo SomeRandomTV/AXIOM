@@ -2,6 +2,9 @@
 import os
 import requests
 from typing import List, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
 """
 Module: LLM
 Provides HTTP-based communication with a language model API.
@@ -18,9 +21,10 @@ class PromptHandler:
 
         # check if URL is not provided
         if not url:
-            raise ValueError("LLM_URL nnot set")
+            raise ValueError("LLM_URL not set")
         self.url = url or os.getenv("LLM_URL")
         self.model = model
+
     def send_prompt(self,messages: List[Dict[str, str]],stream: bool = False) -> Dict[str, Any]:
         """
         Send messages to llm and return the response as json
@@ -39,10 +43,11 @@ class PromptHandler:
         }
 
         # make the HTTP POST request to llm service
-        resp = requests.post(self.url, json=payload, timeout=10)
+        resp = requests.post(self.url, json=payload, timeout=20)
 
         # raise exception for HTTP error codes
         resp.raise_for_status()
 
         # return response json body
         return resp.json()
+
