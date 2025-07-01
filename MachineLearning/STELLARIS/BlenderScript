@@ -1,185 +1,227 @@
-import bpy
-import math
-from mathutils import Vector
-import numpy as np
-import torch
-import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
+import torch 
+import torch.nn as nn 
+import torch.nn.functional as F 
+import numpy as np 
+import bpy 
 
-# -------------------------
-# Surface Encoder Definition
-# -------------------------
-class SurfaceEncoder(nn.Module):
-    def __init__(self, input_dim=9, latent_dim=32):
-        super(SurfaceEncoder, self).__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, latent_dim)
+# --- Helper functions
+def PointCloudRead(Name):
+    obj = bpy.data.objects.get(Name)
+    deps = bpy.context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(deps)
+    mesh = obj_eval.data
+    pts = [tuple(vert.co) for vert in mesh.vertices]
+     #Simple point array initialization
+     
+     
+     #Evaluating the kind of instance of information it is, vertices or pointcloud (look in geometry editor for more info).
+    if isinstance(obj_eval.data, bpy.types.PointCloud):
+        for p in obj_eval.data.points:
+            pts.append(p.co.copy())
+    elif isinstance(obj_eval.data, bpy.types.Mesh):
+        mesh = obj_eval.to_mesh()
+        for v in mesh.vertices:
+            pts.append(v.co.copy())
+    else:
+        raise TypeError(f"{Name} is not a PointCloud or Mesh! ")
+    
+    return pts
+
+def sample_six_side_depths(points, resolution=(128,128), bounds=None):
+    """
+    Given points: (N,3) array of XYZ world positions,
+    produce six orthographic depth maps (front, back, left, right, top, bottom).
+    
+    Args:
+        points      : np.ndarray shape (N,3)
+        resolution  : (H, W) tuple for each depth image size
+        bounds      : ((xmin,xmax),(ymin,ymax),(zmin,zmax)); if None, computed from points
+        
+    Returns:
+        depth_maps  : dict with keys ['+X','-X','+Y','-Y','+Z','-Z'], each a (H,W) float array
+    """
+    H, W = resolution
+    
+    # 1) compute bounds if not given
+    if bounds is None:
+        xmin, ymin, zmin = points.min(axis=0)
+        xmax, ymax, zmax = points.max(axis=0)
+        bounds = ((xmin, xmax),(ymin, ymax),(zmin, zmax))
+    (xmin,xmax),(ymin,ymax),(zmin,zmax) = bounds
+    
+    # For each view we need
+    views = {
+        '+X': {'axis':0, 'u_axis':2, 'v_axis':1, 'u_bounds':(zmin,zmax), 'v_bounds':(ymin,ymax)},
+        '-X': {'axis':0, 'u_axis':2, 'v_axis':1, 'u_bounds':(zmin,zmax), 'v_bounds':(ymin,ymax), 'flip_u':True},
+        '+Y': {'axis':1, 'u_axis':0, 'v_axis':2, 'u_bounds':(xmin,xmax), 'v_bounds':(zmin,zmax)},
+        '-Y': {'axis':1, 'u_axis':0, 'v_axis':2, 'u_bounds':(xmin,xmax), 'v_bounds':(zmin,zmax), 'flip_u':True},
+        '+Z': {'axis':2, 'u_axis':0, 'v_axis':1, 'u_bounds':(xmin,xmax), 'v_bounds':(ymin,ymax)},
+        '-Z': {'axis':2, 'u_axis':0, 'v_axis':1, 'u_bounds':(xmin,xmax), 'v_bounds':(ymin,ymax), 'flip_u':True},
+    }
+    
+    depth_maps = {}
+    for name, cfg in views.items():
+        # extract coords
+        axis = cfg['axis']
+        uax  = cfg['u_axis']
+        vax  = cfg['v_axis']
+        pts  = points.copy()
+        
+        # if flipped view, negate the view axis so depth grows positively
+        if cfg.get('flip_u',False):
+            pts[:,axis] = -pts[:,axis]
+        
+        # normalize UV to [0, W-1] / [0, H-1]
+        umin, umax = cfg['u_bounds']
+        vmin, vmax = cfg['v_bounds']
+        u = (pts[:,uax] - umin) / (umax - umin) * (W-1)
+        v = (pts[:,vax] - vmin) / (vmax - vmin) * (H-1)
+        d = pts[:,axis]  # depth along view direction
+        
+        # floor to int pixel coords, clamp
+        ui = np.clip(u.astype(int), 0, W-1)
+        vi = np.clip(v.astype(int), 0, H-1)
+        
+        # init depth buffer to far plane
+        zfar = cfg.get('flip_u',False) and -xmin or xmax
+        buf = np.full((H, W), np.inf, dtype=np.float32)
+        
+        # for each point, keep the closest (min) depth
+        for xpix, ypix, depth in zip(ui, vi, d):
+            if depth < buf[H-1-ypix, xpix]:
+                buf[H-1-ypix, xpix] = depth
+        
+        # replace inf with far bound
+        buf[np.isinf(buf)] = zfar
+        depth_maps[name] = buf
+    
+    return depth_maps
+
+# ^^^ #=  I got lazy and GPT generated the above, I asked it for a 6 side sampler to scale to ToF points as we'd ideally just be taking depth return gradients to save on performance (REAL TIME that's the key here).
+
+#The idea of this classifier is to help identify points in O(1) complexity, essentially identifying points almost immediately at runtime
+# However with the different methods utilizing ply estimation and normals/delta calculation that makes this feat EXTREMELY memory intensive, which is not optimal for most real-time applications
+#  I propose by constructing an O(1) classifier that has the ability to estimate based on depth returns rather than 3D points we can use its depth gradients to calculate an EXACT 3D signature for objects we want to identify and even extrapolate further details between segmented points
+#     We push most of the work to training and allow generalization to identify points instantly rather than relying on Deltas and Normal estimations
+
+
+#To start we want to first train on the actual segmentation logic, how the agent will segment key points in the scene and identify an object
+class DepthWithGradientsNet(nn.Module):
+    def __init__(self, latent_dim=256, trainable_filter=False):
+    # Generalization Filter Layer, We're using what's called sobel kernels, Sobel and Fieldman  needed edge detection in photographs. So they utilized a derivative function that essentially represented a unique gradient from an image by taking an image's negative and positive and then performing a summation sequence across all inputs within image data (Gr values) 
+    # Then: by applying a contrast filter (grayscale) were able to determine unique edges in photographs. VERY GENIUS FOR 3D POINTS YES YES YES.
+        super().__init__()    
+    #So by defining a generalization filter like such here we are able to convert into a 2D gradient
+        # Heres how it works: We draw edge cases from a depth image (say a ToF return vector [0.83, 1, 69, 420, etc...]
+            # WE then draw edge cases at each of the points from a reverse contrast image (basically grayscale the image) then from 0-255 (grayscale) it computes the negatives of overlapping pixel. giving us edge cases. Now in this case we don't need the grayscale as the depth values alone (0-setlimit) are always going to stay within a range for 3D sensory
+        sobel_x  = torch.tensor([[-1,0,1],[-2,0,2],[-1,0,1]], dtype=torch.float32) # 1ST D
+        sobel_y  = torch.tensor([[-1,-2,-1],[0,0,0],[1,2,1]], dtype=torch.float32) # 2ND D
+# Now we apply the gradient filter from the original depth image, essentially we now have the edge contrast of every single depth cases like : [0.83, 2.00, 35.6] etc
+# Essentially think of it like this. If we had a depth map of 1's on one half and 0's on the other. we'd get the edge case of contrast between each border. This proves true with depth mapping via contrast cases at the border (directly down the middle where the 0's and 1's would meet).
+        # take 1 input channel (the original depth map channel) create 2 output channels, use a 3x3 kernel size for this, we create an extra pixel padding on all sides expanding the image, we won't need a bias constant for now since generalization in this layer isn't needed yet
+        self.grad_filter = nn.Conv2d(1,2,3, padding=1, bias=False)
+        # Notice we made the kernel size 3x3, the same general size of sobel filters. that is because we going to keep the scale proper so that the sobel value generated can act as weights.
+        self.grad_filter.weight.data = torch.stack([sobel_x, sobel_y]).unsqueeze(1)
+        # now we have sobel weights and we are requiring that we track gradients during backpropogation
+        self.grad_filter.weight.requires_grad = trainable_filter #this essentially acts as a pass filter that determines
+        # whether the model keeps those values as static or become learnable parameters
+        
+        self.encoder = nn.Sequential( # where the real encoding layers are
+            nn.Conv2d(2,32, kernel_size=5, stride=2, padding=2), nn.ReLU(), #Basic ReLU activation on a 5x5 3 in 32 out or 3 inputs 32 weights, but why are we doing stride? 
+            nn.Conv2d(32,64, kernel_size=3, stride=2, padding=1), nn.ReLU(), # Stride is essentially made to segment the resolution of the image (the actual input size) essentially this is our downsampler, essentially converting a 1024x1024 resoltion scan into a single unique vector
+            nn.Conv2d(64,128, kernel_size=3, stride=2, padding=1), nn.ReLU(), #each of these layers are the same except for padding and the input -> output
         )
-
-    def forward(self, token_tensor):
-        norm = torch.nn.functional.normalize(token_tensor, dim=1)
-        return self.encoder(norm)
-
-# -------------------------
-# Pretty Printer
-# -------------------------
-def print_token_as_grid(token):
-    center = token[0]
-    deltas = token[1:]
-    labels = [
-        ("↖", deltas[4]), ("↑", deltas[0]), ("↗", deltas[5]),
-        ("←", deltas[2]), ("C", center),    ("→", deltas[3]),
-        ("↙", deltas[6]), ("↓", deltas[1]), ("↘", deltas[7]),
-    ]
-    print("\nSurface Token Grid (Depth deltas):")
-    print(f"{labels[0][0]} {labels[1][0]} {labels[2][0]}    →    {labels[0][1]: .6f} {labels[1][1]: .6f} {labels[2][1]: .6f}")
-    print(f"{labels[3][0]} {labels[4][0]} {labels[5][0]}    →    {labels[3][1]: .6f} {labels[4][1]: .6f} {labels[5][1]: .6f}")
-    print(f"{labels[6][0]} {labels[7][0]} {labels[8][0]}    →    {labels[6][1]: .6f} {labels[7][1]: .6f} {labels[8][1]: .6f}")
-
-# -------------------------
-# 8-connected Neighborhood
-# -------------------------
-def get_neighbors(depth_grid, i, j):
-    neighbors = []
-    H, W = depth_grid.shape
-    offsets = [(-1, 0), (1, 0), (0, -1), (0, 1),
-               (-1, -1), (-1, 1), (1, -1), (1, 1)]
-    for dy, dx in offsets:
-        ni, nj = i + dy, j + dx
-        if 0 <= ni < H and 0 <= nj < W:
-            neighbors.append(depth_grid[ni][nj])
-        else:
-            neighbors.append(0.0)
-    return np.array(neighbors)
-
-# -------------------------
-# Token Generator
-# -------------------------
-def tokenize_patch(center_depth, neighbor_depths):
-    deltas = neighbor_depths - center_depth
-    token = np.concatenate(([center_depth], deltas))
-    return token
-
-# -------------------------
-# Flash LiDAR Scanner
-# -------------------------
-def fov_scan(origin, h_fov=90, v_fov=60, res_x=100, res_y=60, max_distance=100.0):
-    scene = bpy.context.scene
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    depth_grid = np.zeros((res_y, res_x))
-    h_start = -h_fov / 2
-    v_start = -v_fov / 2
-    h_step = h_fov / (res_x - 1)
-    v_step = v_fov / (res_y - 1)
-
-    for row in range(res_y):
-        for col in range(res_x):
-            h_angle = math.radians(h_start + col * h_step)
-            v_angle = math.radians(v_start + row * v_step)
-            x = math.cos(v_angle) * math.cos(h_angle)
-            y = math.cos(v_angle) * math.sin(h_angle)
-            z = math.sin(v_angle)
-            direction = Vector((x, y, z)).normalized()
-            hit, location, _, _, _, _ = scene.ray_cast(
-                depsgraph, origin, direction, distance=max_distance
-            )
-            distance = (location - origin).length if hit else max_distance
-            depth_grid[row, col] = distance
-
-    return depth_grid
-
-# -------------------------
-# Learned Quantization Layer
-# -------------------------
-class LatentQuantizer(nn.Module):
-    def __init__(self, latent_dim=32):
-        super(LatentQuantizer, self).__init__()
-        self.project = nn.Sequential(
-            nn.Linear(latent_dim, latent_dim),
-            nn.Tanh(),
-            nn.Linear(latent_dim, latent_dim)
+        #This is a pool field that is set to take each H x W  feature map ()
+        self.pool = nn.AdaptiveAvgPool2d((1,1)) #we now pool together channel maps and collapse them down to a single number, allowing scaling up to values divisible by 8 (literally almost all would require it to be more than 16 to 32 resolution of points).
+        self.fc = nn.Linear(128, latent_dim) # Now we introduce non-linearity to map to a proper signature.
+        
+        #Spatial head, goes by per pixle, (Basically for more detail)
+        self.mask_head = nn.Sequential(
+            nn.Conv2d(128,64,3,padding=1), nn.ReLU(), # We go through a decompression process when we want to use a mask
+            nn.ConvTranspose2d(64,32,2,stride=2), nn.ReLU(), #This helps us identify further relations between objects before further compressing them 
+            nn.ConvTranspose2d(32,16,2, stride=2), nn.ReLU(), #Essentially if we had a cube and scanned its 6 sides we'd ideally know that a plane would relate to it at all 6 directions, thats the approach i'm going with
+            nn.ConvTranspose2d(16,1,2,stride=2), 
+            nn.Sigmoid()
         )
-
-    def forward(self, latent_tensor):
-        return self.project(latent_tensor)
-
-quantizer = LatentQuantizer(latent_dim=32)
-
-# -------------------------
-# Prototype & Memory Init
-# -------------------------
-encoder = SurfaceEncoder(input_dim=9, latent_dim=32)
-latent_memory = {}
-epoch_memory = []
-epoch_limit = 5
-scan_limit = 2000
-optimizer = torch.optim.Adam(list(encoder.parameters()) + list(quantizer.parameters()), lr=0.001)
-criterion = nn.MSELoss()
-encoder.train()
-quantizer.train()
-
-# -------------------------
-# Repeated Scanning Loop
-# -------------------------
-scan_count = 0
-while scan_count < scan_limit:
-    for obj in bpy.data.objects:
-        if obj.name.startswith("Cube"):
-            print(f"Scanning object: {obj.name} (Scan {scan_count+1}/{scan_limit})")
-            depth_grid = fov_scan(obj.location)
-            H, W = depth_grid.shape
-            token_list = []
-            latent_list = []
-
-            for i in range(H):
-                for j in range(W):
-                    center_depth = depth_grid[i][j]
-                    neighbors = get_neighbors(depth_grid, i, j)
-                    token = tokenize_patch(center_depth, neighbors)
-                    token_tensor = torch.tensor(token, dtype=torch.float32)
-                    token_list.append(token_tensor)
-
-            token_batch = torch.stack(token_list)
-            normalized_tokens = torch.nn.functional.normalize(token_batch, dim=1)
-            latent_batch = encoder(normalized_tokens)
-            quantized = quantizer(latent_batch)
-
-            # Similarity-based merging
-            for latent_vec in quantized:
-                found = False
-                for existing_key, record in latent_memory.items():
-                    existing_vec = record['center']
-                    dist = torch.norm(latent_vec - existing_vec)
-                    if dist < 0.5:  # epsilon threshold
-                        record['count'] += 1
-                        record['center'] = (existing_vec * (record['count'] - 1) + latent_vec) / record['count']
-                        found = True
-                        break
-                if not found:
-                    latent_memory[len(latent_memory)] = {'count': 1, 'center': latent_vec.detach()}
-
-            epoch_memory.extend(zip(token_list, latent_batch.detach()))
-
-            if len(epoch_memory) >= epoch_limit * 100:
-                tokens, targets = zip(*epoch_memory)
-                dataset = TensorDataset(torch.stack(tokens), torch.stack(targets))
-                dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
-
-                for inputs, targets in dataloader:
-                    outputs = encoder(torch.nn.functional.normalize(inputs, dim=1))
-                    loss = criterion(outputs, targets)
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-
-                epoch_memory = []
-                print("Trained on accumulated frames")
-
-            print("Frame recorded. Total unique token patterns:", len(latent_memory))
-            scan_count += 1
-            if scan_count >= scan_limit:
-                break
+    #CONTEXT ^^^ THIS ALL ALREADY WAS INTIALIZED NOW ITS TIME
+        
+    
+    def forward(self,depth):
+        grads = self.grad_filter(depth)
+        Gx, Gy = grads[:,0:1], grads[:,1:2] #This black magic bullshit is really just a split : , 1:2 so a 0 x 1 x 2
+        Gmag = torch.sqrt(Gx**2 + Gy**2) #We're essentially taking our gradients x and y, square rooting it after squaring both X and Y. Generating a Scalar rather than a single value for each edge (or [0,1] [1,0] [0,0] just becomes 1, 0, 0) This THROWS AWAY THE ONE THING THESE SOBEL FILTERS ARE GREAT AT: look below this line is too long...
+        #ROTATION. Sobel filters typically consider orientation naturally. By using this value we convert to a scalar which just considers how strong the edge is, not its direction like originally
+        x = torch.cat([depth, Gmag], dim=1) 
+        f = self.encoder(x)
+        g = self.pool(f).view(f.size(0), -1)
+        z = self.fc(g)
+        return z
+    
+##################TRAINING TIME##########################
+"""“We start with a shared encoder that maps each input into a fixed-length embedding.
+Whenever we see a new cluster of points in that embedding space, we dynamically instantiate
+a new linear “head” a single-unit nn.Linear(embed_dim,1)) to recognize that cluster.
+We keep all of these heads in a ModuleList so their weights get trained jointly.
+ If two heads’ outputs or their weight-vectors
+become nearly identical (above some similarity threshold), we merge them into one
+head—averaging their weights and removing the duplicate from the ModuleList. Over time
+this gives us a growing, self-pruning set of heads that correspond to discovered “labels,” 
+and those heads themselves form a hierarchy of concepts. Each head involves a "collapse" when
+weights become too similar, allowing for similarly scanned concepts (Encoded Values) to 
+Fall into one category during generalization, saving on memory and maintaining fidelity
+At the cost to training time.”"""
+   
+class HeadCreation(nn.Module):
+    def __init__(self, latent_dim=256, threshold=0.9):
+        super().__init__()
+        self.encoder = DepthWithGradientsNet(latent_dim, trainable_filter=True)
+        self.heads = nn.ModuleList()
+        self.threshold = threshold
+    def add_head(self):
+        head = nn.Linear(self.encoder.fc.out_features, 1)
+        self.heads.append(head)
+        return head
+    def merge_redundant_heads(self):
+        n = len(self.heads)
+        if n<2:
+            return
+        W = torch.stack([h.weight.view(-1) for h in self.heads], dim=0) #using torch we build a stack that will act as a matrix [n x latent_dim] so each vector gets inputted into a matrix
+        norms = W.norm(p=2, dim=1, keepdim=True) #Compute our normals to get a discrete value thats scalable across all similar values, maintain the dimension of each vector so that they align
+        cosim = (W @ W.t())/(norms*norms.t() + 1e-8) #Good lord jesus this is black magic,
+        #we now compute cosine similarity across matrices, hence the @ as we use this to multiply two matrices
+        #norms is simply just the computer normals which are just the normals of the matrix vectors brought down to 1D so we only need *, .t() expression is the transposed matrix or H x W becoming W x H.
+        # Why are we transposing the 1D vector and the matrix? Simply Put : you compute dot product easily with this method, known as Gram matrix
+        # , where we take [d, n] * [n, d] = [n,n] which is a dot product, necessary for 
+        #cosine similarity. since what we need is the cosine tangent of the two vectors a.k.a a*b/|a||b| just like for 1 vector which is a/1 remember your pre-calc
+        # (thank you OpenAI for ChatGBT or else I would NOT have done this right with what I originally was doing (concatenating vectors and expecting a discrete output each time DID NOT WORK)
+        
+        
+    def forward(self, x):
+        z = self.encoder(x)
+        if self.heads:
+            logits = [h(z) for h in self.heads]
+            return torch.cat(logits, dim=1)
         else:
-            print(f"{obj.name} is not a cube, skipping.")
+            return torch.empty(x.size(0),0, device=x.device)
+##########Dynamic Head creation ^^^^^######
+if __name__ == "__main__":
+    pts = PointCloudRead("ToF")
+    NumpyPts = np.stack([p[:] for p in pts], axis=0)
+    DepthMap = sample_six_side_depths(NumpyPts, resolution=(128,128))
+    model = HeadCreation(latent_dim=256, threshold = 0.7)
+    model.add_head()
+
+    for side in ['+X','-X','+Y','-Y','+Z','-Z']:
+        dmap = DepthMap[side]
+        t = torch.from_numpy(dmap).unsqueeze(0).unsqueeze(0).float()
+        t = t/(dmap.max() + 1e-6)
+        
+        logits = model(t)
+        print(logits)
+    
+        z = model.encoder(t)
+        print(f" side : {side} = {z.shape}")
+
+ ######################
+ ###### WIP HERE ######
+ ######################
