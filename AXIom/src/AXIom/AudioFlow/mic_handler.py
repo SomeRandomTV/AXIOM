@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore", message="FP16 is not supported on CPU*")
 Module: MicInput
 Handles all microphone transactions (recording/transcribing)
 """
-class MicInput:
+class MicHandler:
     def __init__(self):
 
         """

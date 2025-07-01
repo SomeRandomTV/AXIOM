@@ -6,8 +6,8 @@ All external files will be called here
 import os
 from CmdCraft import cmd_handler as ch
 from CmdCraft import prompt_handler as ph
-from AudioFlow import tts_engine as te
-from AudioFlow import mic_input as se
+from AudioFlow import tts_handler as te
+from AudioFlow import mic_handler as se
 from dotenv import load_dotenv
 import time
 
@@ -19,8 +19,8 @@ def main():
     print("Initializing components...")
     handler = ch.CommandHandler()
     p_handler = ph.PromptHandler(url=LLM_URL)
-    tts = te.TTSEngine()
-    mic = se.MicInput()
+    tts = te.TTSHandler()
+    mic = se.MicHandler()
     print("Components initialized.")
 
     print("Starting the AXIom...")

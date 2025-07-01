@@ -1,18 +1,18 @@
 from CmdCraft import (
-    cmd_handler as commandhandler,
-    function_handler as functionhandler,
-    prompt_handler as prompthandler,
+    cmd_handler as command_handler,
+    function_handler as function_handler,
+    prompt_handler as prompt_handler,
 )
 
 from AudioFlow import (
-    mic_input as micinput,
-    tts_engine as ttsengine
+    mic_handler as mic_handler,
+    tts_handler as tts_handler,
 )
 #Something
 __all__ = [
-    "commandhandler",
-    "functionhandler",
-    "prompthandler",
-    "ttsengine",
-    "micinput"
+    "command_handler",
+    "function_handler",
+    "prompt_handler",
+    "tts_handler",
+    "mic_handler"
 ]
