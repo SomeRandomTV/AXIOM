@@ -21,9 +21,9 @@
 ## 🗺️ Locating UPBGE’s `site-packages`
 1. **Launch** UPBGE and open the **Python Console**.  
 2. Run:
-   ```python
+   ```python```
    import site
    print(site.getsitepackages()) #Pick any of these locations it prints and put it in the location of TARGET_LOC if it doesn't work with the executable
 3. Install these packages with the following command
- ```<C:\users\USER\...\4.4\python\bin\python.exe> -m pip install <PACKAGE> --target TARGET_LOC
-``` torch, numpy, sklearn
+ ```<C:\users\USER\...\4.4\python\bin\python.exe> -m pip install <PACKAGE> --target TARGET_LOC```
+  torch, numpy, sklearn
