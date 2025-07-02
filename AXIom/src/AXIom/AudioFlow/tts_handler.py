@@ -11,7 +11,7 @@ from gtts import gTTS
 """
 Module: TTS Handler
 Ok, this is very rigged to give us faster in-memory streaming of gtts
-If 
+Things area litte more split up and divided into an easier flow
 """
 class TTSHandler:
 
