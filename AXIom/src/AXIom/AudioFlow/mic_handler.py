@@ -3,6 +3,7 @@ import certifi
 import warnings
 import speech_recognition as sr
 import whisper
+import logging
 #Something
 # load SSL file for whisper
 os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -14,7 +15,7 @@ Module: MicInput
 Handles all microphone transactions (recording/transcribing)
 """
 class MicHandler:
-    def __init__(self):
+    def __init__(self, log_level: int = logging.INFO):
 
         """
         Initialize the MicInput class and microphones.
@@ -29,27 +30,36 @@ class MicHandler:
         self.model = whisper.load_model("base")
         # transcribed text
         self.text = None
+        # create an instance of logger
+        self.logger = self._setup_logger(log_level)
+    @staticmethod
+    def _setup_logger(level: int) -> logging.Logger:
+        logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",level=level)
+        return logging.getLogger('MicHandler')
+
 
     def set_mic_input(self):
         """
         Transcribe the audio given by the microphone using openai-whisper
         """
         with self.Microphone as source:
-            print("Listening...")
+            self.logger.info("Listening...")
             # adjust ambience noise
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
             # record the audio
             audio = self.recognizer.listen(source)
             # write the recorded audio to a file to be transcribed(TODO 'change to transcribe in MEMORY not I/O')
             with open("speech_reference.wav", "wb") as f:
+                self.logger.info("Writing audio to file...")
                 f.write(audio.get_wav_data())
             try:
                 # transcribe with whisper
+                self.logger.info("Transcribing(with whisper)...")
                 result = self.model.transcribe("speech_reference.wav")
                 self.text = result["text"]
 
             except Exception as e:
-                print(e)
+                self.logger.error(f"Error transcribing audio: {e}")
 
 
 
