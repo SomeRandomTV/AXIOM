@@ -40,7 +40,8 @@ class CommandHandler:
         # Parsed command parts for function calls
         self.function_call_name: str | None = None
         self.function_params: Dict[str, Any] | None = None
-        self.is_function_command: bool = False  # True if a valid function command was parsed
+        self.function_flag: int | None = None
+
 
         # List to store all parsed function calls (for potential multiple calls)
         self.function_calls: List[Dict[str, Any]] = []
@@ -71,8 +72,8 @@ class CommandHandler:
         self.rest = raw_command
         self.function_call_name = None
         self.function_params = None
-        self.is_function_command = False
         self.function_calls = [] # Clear previous calls
+        self.function_flag = 0
 
         self.logger.info(f"Attempting to parse raw command: '{raw_command}'")
         match = self.MASTER_SPLITTER.match(raw_command)
@@ -81,7 +82,7 @@ class CommandHandler:
             self.cmd = match.group("cmd").lower()
             # Store everything after the command keyword
             self.rest = match.group("rest")
-            self.is_function_command = True
+            self.function_flag = 1
             self.logger.info(f"Identified slash command: '/{self.cmd}' with rest: '{self.rest}'")
         else:
             self.logger.info("No slash command detected. Treating as a regular prompt.")
@@ -96,7 +97,7 @@ class CommandHandler:
                         or an unsupported function/type is requested.
         """
         # If it's not a slash command, there's nothing to parse here for function calls.
-        if not self.is_function_command:
+        if not self.function_flag:
             self.logger.debug("Not a slash command, skipping command parsing for function calls.")
             return
 

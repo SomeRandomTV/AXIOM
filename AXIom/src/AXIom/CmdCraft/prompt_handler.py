@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__) # Use __name__ for the logger name
 
 
-class OllamaClient:
+class PromptHandler:
     """
     Module: OllamaClient
     Provides a high-level interface to interact with the Ollama API for
@@ -34,7 +34,7 @@ class OllamaClient:
     """
 
     def __init__(self,
-                 base_url: str = DEFAULT_OLLAMA_BASE_URL,
+                 url: str = DEFAULT_OLLAMA_BASE_URL,
                  model: Optional[str] = None,
                  system_prompt: Optional[str] = None,
                  stream: bool = False) -> None:
@@ -42,7 +42,7 @@ class OllamaClient:
         Initializes the Ollama client.
 
         Args:
-            base_url (str): The base URL of the Ollama API.
+            url (str): The base URL of the Ollama API.
                             Defaults to "http://localhost:11434".
             model (Optional[str]): The model to use for generating responses
                                    (e.g., "llama2", "mistral"). If None,
@@ -57,7 +57,7 @@ class OllamaClient:
         # --- API Configuration ---
         if not model:
             logger.warning("No default model provided. You will need to specify a model for each API call.")
-        self.base_url: str = base_url
+        self.base_url: str = url
         self.model: Optional[str] = model
         self.system_prompt: Optional[str] = system_prompt
         self.stream: bool = stream
@@ -176,7 +176,7 @@ class OllamaClient:
             Optional[str]: The content of the model's response message as a string,
                            or None if an error occurs or the service is shut down.
         """
-        if prompt.lower() == "/bye":
+        if prompt.lower() in "/bye" or prompt.lower() in "bye":
             logger.info("User requested shutdown: Initiating Ollama service stop.")
             self.manager.stop_ollama()
             return "Ollama service stopped. Goodbye!"

@@ -1,3 +1,4 @@
 **/secrets/
 .env
 **/model_cache/
+**/__pycache__/
