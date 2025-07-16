@@ -1,10 +1,12 @@
 import logging
 import coloredlogs
 import spacy
-from typing import Dict, Any, List
+from typing import Dict, Any
 from spacy.matcher import Matcher
 
-# --- Configuration ---
+# Before continuing this is just a rough nlp command classifier architecture but pretty ez to integrate more and more commands
+
+# --- Function mapping ---
 FUNCTION_MAP = {
     "get_weather": {"location"},
     "get_news": {"topic"},
@@ -17,6 +19,7 @@ FUNCTION_MAP = {
     "create_visitor": {"name", "purpose"}
 }
 
+# Supported 'user' types
 SUPPORTED_TYPES = {
     "staff",
     "resident",
@@ -57,7 +60,7 @@ SPACY_PATTERNS = {
         ],
     ],
     "get_schedule": [  # Patterns for inquiring about a schedule
-        # Pattern 1: What/When/Is [person] (for) [event] [time]
+        # Pattern 1: What/When/Is [person] (for) [event] [time], TODO: this one doesn't work check logs
         [
             {"LOWER": {"IN": ["what", "when", "is", "are"]}},
             {"POS": "PROPN"},  # Person
@@ -77,10 +80,21 @@ SPACY_PATTERNS = {
     ]
 }
 
-
-# --- NLP Handler Class ---
+"""
+Module: NLPHandler
+This is a decent shitter for now
+Provides a class for parsing and dispatching commands using SpaCy.
+It uses SpaCy's Matcher to identify patterns and extract parameters.
+It also provides a simple example of how to dispatch a command.
+"""
 class NLPHandler:
     def __init__(self, log_level: int = logging.INFO) -> None:
+        """
+        Initializes the NLPHandler, setting up SpaCy and matcher state.
+
+        Args:
+            log_level (int): The desired logging level. Defaults to logging.INFO.
+        """
         self.logger = self._set_up_logger(log_level)
         self.nlp = spacy.load("en_core_web_md")  # Use a larger model for better NER, e.g., en_core_web_md
         self.matcher = Matcher(self.nlp.vocab)
@@ -94,13 +108,22 @@ class NLPHandler:
         return logger
 
     def _add_matching_rules(self) -> None:
-        """Adds all defined patterns to the SpaCy matcher."""
+        """
+        Adds all defined patterns to the SpaCy matcher.
+        """
         for intent_name, patterns in SPACY_PATTERNS.items():
             self.matcher.add(intent_name, patterns)
         self.logger.info("SpaCy matcher rules loaded.")
 
     def _parse_command(self, raw_command: str) -> Dict[str, Any]:
-        """Parses the raw command to identify intent and extract parameters."""
+        """
+        Parses the raw command to identify intent and extract parameters.
+
+        Args:
+            raw_command (str): The raw command string.
+        Returns:
+            function_call (Dict[str, Any]): A dictionary containing the function name and its parameters.
+        """
         self.logger.debug(f"Parsing command: '{raw_command}'")
         doc = self.nlp(raw_command)
         matches = self.matcher(doc)
@@ -108,7 +131,8 @@ class NLPHandler:
 
         if not matches:
             self.logger.warning("No intent matched for the command.")
-            return {"function_name": None, "function_params": {}}
+            self.function_call = {"function_name": None, "function_params": {}}
+            return self.function_call
 
         # Prioritize more specific matches if needed, but for now take the first
         match_id, start, end = matches[0]
@@ -133,7 +157,16 @@ class NLPHandler:
         }
 
     def _extract_params(self, intent: str, doc: spacy.tokens.Doc, matched_span: spacy.tokens.Span) -> Dict[str, Any]:
-        """Extracts parameters based on the detected intent and entity types."""
+        """
+        Extracts parameters based on the detected intent and entity types.
+
+        Args:
+            intent (str): The detected intent.
+            matched_span (spacy.tokens.Span): The matched span of the intent.
+
+        Returns:
+            params (Dict[str, Any]): A dictionary containing the extracted parameters.
+        """
         params = {}
 
         # General entity extraction first
@@ -147,7 +180,7 @@ class NLPHandler:
             elif ent.label_ in {"ORG", "NORP"}:  # Organization, Nationalities/Religious/Political groups
                 if intent == "get_news":
                     params["topic"] = ent.text
-            elif ent.label_ == "DATE" or ent.label_ == "TIME":
+            elif ent.label_ == "DATE" or ent.label_ == "TIME": # TODO: need to extract all types of "time" input
                 params["time"] = ent.text
             elif ent.label_ == "PERSON":
                 params["person"] = ent.text  # Use 'person' as a generic key for users/recipients
@@ -179,16 +212,16 @@ class NLPHandler:
                     elif token.lower_ == "for" and i + 1 < len(doc) and doc[i + 1].pos_ == "NOUN":
                         params["event"] = doc[i + 1].text
                         break
-                # Last resort for events not captured by stricter rules (e.g., 'flight' in "What John for flight")
+                # Last resort for events not captured by stricter rules
                 # This should be handled by better SpaCy patterns for nouns in specific positions
                 if "event" not in params:
                     # Look for specific event words
                     for token in doc:
-                        if token.lower_ in ["flight", "meeting", "call", "appointment", "presentation"]:
+                        if token.lower_ in ["flight", "meeting", "call", "appointment", "presentation", "medication"]:
                             params["event"] = token.text
                             break
 
-        # Map 'person' to the correct function-specific parameter name
+        # Map 'person' to the correct function-specific parameter name cos nlp is fucking stoopid
         if "person" in params:
             person_value = params["person"]
             if intent in ["schedule_event", "get_schedule"]:  # Now explicitly handle both
@@ -203,23 +236,26 @@ class NLPHandler:
         return params
 
     def set_command(self, raw_command: str) -> None:
-        """Sets the raw command and triggers parsing."""
+        """
+        Sets the raw command and triggers parsing.
+
+        Args:
+            raw_command (str): The raw command string.
+        """
         print(f"\n[INPUT]: {raw_command}")
         self.function_call = self._parse_command(raw_command)
         print("[PARSED]:", self.function_call)
 
     def dispatch(self) -> None:
-        """Example method to simulate dispatching the command."""
+        """
+        Executes the parsed function call.
+        """
         if self.function_call["function_name"]:
-            self.logger.info(
-                f"Dispatching function: {self.function_call['function_name']} with params: {self.function_call['function_params']}")
-            # Here you would call the actual function based on self.function_call
-            # e.g., getattr(self.command_executor, self.function_call["function_name"])(**self.function_call["function_params"])
+            self.logger.info(f"Dispatching function: {self.function_call['function_name']} with params: {self.function_call['function_params']}")
+            # TODO: call function here
         else:
             self.logger.info("No function to dispatch.")
 
-
-# --- Main Execution ---
 def main():
     nlp_handler = NLPHandler(log_level=logging.DEBUG)
 
