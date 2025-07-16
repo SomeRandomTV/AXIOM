@@ -1,254 +1,169 @@
-# The Command Handler
+# NLP Command Handler
 
-This is where all prep is done to an input command. \
-For example, if you said "get weather for Austin" \
-It would be parsed into:  
-- `/get`  
-- `weather`  
-- `for`  
-- `Austin`
+This module handles parsing of natural language commands into structured function calls using **SpaCy** and predefined **intent patterns**.
 
-Calling the `get_weather()` function with the `Austin` parameter.
+For example:
 
+> *"Schedule John for team meeting tomorrow."*
+> Is parsed into:
 
-For now there are only four types of commands:  
-- `/get` &rarr; get data
-- `/create`  &rarr; create data
-- `/schedule`  &rarr; schedule an event 
-- `/notify`  &rarr; send a message 
-
-Notice, all commands start with `"/"`  
-
-At the very top level this is the command structure:\
-/`<cmd>` `<cmd_body>`
-
-Where: 
-
-- `<cmd>` : the command to be called (e.g. `get`, `create`, `schedule`, `notify`)  
-- `<cmd_body>` : the parameters for the command (e.g. `<Austin>`) 
-
-> **Data schema for all created objects**  
-> ```json
-> {
->  "function call": "<function_name>",
->  "target": "<additional params>"
-> }
-
----
-
-## /get
-
-This is a _fetch_ command; it retrieves data from whatever source you specify.
-
-**Syntax** \
-/get `<function>` for `<target>`
-
-
-- `/get` : command  
-- `<function>` : the function to be called (e.g. `weather`, `news`, `stock`)  
-- `for` : delimiter before parameters  
-- `<target>` : target location, topic, etc.
-
-> **Example usage**  
-> ```
-> /create get weather for Austin
-> ```
-> _Returns:_  
-> ```json
-> {
->   "function_call" : "get_weather()",
->   "target": "Austin"
->  }
-
----
-
-## /create
-
-Creates new user‐type objects (residents, staff, visitors, emergency services).
-
-**Syntax** \
-/create `<type>` `<params>`
-
-
-- `/create` : command  
-- `<type>` : one of `resident`, `staff`, `visitor`, `EmergencyServices`  
-- `<params>` : attributes for the object
-
-**Supported types & params**  
-- **resident**  
-  - `name`:  `<first>  <last>`  
-  - `height`:  `<ft>  <in>`  
-  - `weight`: `<lbs>`  
-- **staff**  
-  - `name`: `<first> <last>`  
-  - `height`: `<ft> <in>`  
-  - `weight`: `<lbs>` (_optional_)  
-  - `temp`: `<true|false>` (_temporary flag_)  
-- **visitor**  
-  - `name`: `<first> <last>`  
-  - `purpose`: `<reason for being here>`  
-- **EmergencyServices**  
-  - `type`: `<fire dept|police|ems>`
-  - `severity`:`<critical|high|medium|low>`
-
-> **Example usage**  
-> ```
-> /create resident Smith Jerry height 6 4 weight 120
-> ```
-> _Returns:_  
-> ```json
-> {
->   "function_call" : "create_user",
->   "target": {
->     "name": "Jerry Smith",
->     "type": "resident",
->       "any": {
->         "height": "6'4\"",
->         "weight": "120 lbs"
->      }
->    }
->  }
-> ```
-
----
-
-## /schedule
-
-Creates an event at a specified date and time.  
-_(Date parameters to be defined in future iterations.)_
-
-**Syntax** \
-/schedule <`user`> for <`event`> at <`time`>
-
-**Example Usage**
-> **Example usage**  
-> ```
-> /schedule jerry for Dentist at 10pm
-> ```
-> _Returns:_  
-> ```json
-> {
->   "function_call" : "schedule",
->   "target": {
->     "user": "Jerry Smith",
->     "event": "Dentist",
->     "time": "10pm"
->    }
->  }
-> ```
-
----
-
-## /notify
-
-This command notifies or sends a message to a recipient 
-
-**Syntax** \
-/notify `<recipient>` `<message>`
-
-**Example Usage**
-> **Example usage**  
-> ```
-> /schedule notify Morty Dentist tomorrow at 10am
-> ```
-> _Returns:_  
-> ```json
-> {
->   "function_call" : "notify_user",
->   "target": {
->     "recipient": "Jerry",
->     "message":  "Dentist tomorrow at 10am"
->    }
->  }
-> ```
-
-
-## Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant H as CommandHandler
-    participant R as Regex
-    participant F as FunctionHandler
-    participant L as LLM
-
-    U->>H: set_command(raw_command)
-    H->>R: MASTER_SPLITTER.match(raw_command)
-    alt slash-style command
-        R-->>H: match found
-        H->>H: cmd = match.group(cmd)
-        H->>H: rest = match.group(rest)
-    else no slash prefix
-        R-->>H: no match
-        H->>H: rest = raw_command
-    end
-
-    U->>H: parse_command()
-    alt cmd == get
-        H->>R: GET_CMD_PATTERN.match(rest)
-        alt match success
-            R-->>H: match object
-            H->>H: validate function name
-            H->>H: set function_call
-            H->>H: set target
-            H->>H: set function_flag to 1
-        else match failure
-            H-->>U: ValueError: usage get
-        end
-    else cmd == create
-        H->>R: CREATE_CMD_PATTERN.match(rest)
-        alt match success
-            R-->>H: match object
-            H->>H: extract type and payload
-            H->>H: parse key/value pairs
-            H->>H: set function_call to create
-            H->>H: set target params
-            H->>H: set function_flag to 1
-        else match failure
-            H-->>U: ValueError: usage create
-        end
-    else cmd == schedule
-        H->>R: SCHEDULE_CMD_PATTERN.match(rest)
-        alt match success
-            R-->>H: match object
-            H->>H: set function_call to schedule
-            H->>H: set target params
-            H->>H: set function_flag to 1
-        else match failure
-            H-->>U: ValueError: usage schedule
-        end
-    else cmd == notify
-        H->>R: NOTIFY_PAYLOAD.match(rest)
-        alt match success
-            R-->>H: match object
-            H->>H: set function_call to notify
-            H->>H: set target params
-            H->>H: set function_flag to 1
-        else match failure
-            H-->>U: ValueError: usage notify
-        end
-    else
-        H->>H: function_flag remains 0
-    end
-
-    U->>H: dispatch()
-    alt function_flag == 1
-        H->>F: call function_call with target
-        F-->>H: result data
-        H->>U: return function result
-    else
-        H->>L: send prompt(rest)
-        L-->>H: response text
-        H->>U: return LLM response
-    end
-
-    U->>H: get_command()
-    H-->>U: { function_call, target }
-
+```json
+{
+  "function_name": "schedule_event",
+  "function_params": {
+    "user": "John",
+    "event": "team meeting",
+    "time": "tomorrow"
+  }
+}
 ```
 
+---
 
+## Command Types
 
+There are currently **four supported intents**, each mapping to a backend function:
 
-Something
+| Intent           | Purpose                              | Example Input                                      |
+| ---------------- | ------------------------------------ | -------------------------------------------------- |
+| `get_weather`    | Retrieve weather data                | "What’s the weather in Austin?"                    |
+| `get_news`       | Fetch news by location/topic         | "Show me the news in Tokyo."                       |
+| `schedule_event` | Schedule an event for a user         | "Schedule John for a dentist appointment at 10am." |
+| `get_schedule`   | Inquire about existing events        | "When is Sarah's dentist appointment?"             |
+| `notify`         | Send a message to a user             | "Notify Jerry about his dentist tomorrow."         |
+| `create_*`       | Create users (resident, staff, etc.) | "Add a new resident Jerry Smith, height 6'4"."     |
+
+---
+
+## Input Structure
+
+Raw commands are parsed into:
+
+```json
+{
+  "function_name": "<matched_intent>",
+  "function_params": {
+    "<param1>": "<value1>"
+  }
+}
+```
+
+If no intent is matched, the output will be:
+
+```json
+{
+  "function_name": null,
+  "function_params": {}
+}
+```
+
+---
+
+## Function Map
+
+Maps supported function names to the required keys in `function_params`.
+
+```python
+FUNCTION_MAP = {
+  "get_weather": {"location"},
+  "get_news": {"topic"},
+  "get_stock": {"stock_name"},
+  "schedule_event": {"user", "event", "time"},
+  "get_schedule": {"user", "event", "time"},
+  "notify": {"recipient", "message"},
+  "create_resident": {"name", "height", "weight"},
+  "create_staff": {"name", "height", "weight", "temp"},
+  "create_visitor": {"name", "purpose"}
+}
+```
+
+---
+
+## SpaCy Intent Patterns
+
+Each intent has one or more **matching patterns** using SpaCy’s `Matcher`.
+Patterns are designed to extract intent and key argument types (`PERSON`, `DATE`, `GPE`, etc.).
+
+Example:
+
+```python
+SPACY_PATTERNS = {
+  "get_weather": [
+    [{"LOWER": "weather"}, {"LOWER": "in"}],
+    [{"LOWER": {"IN": ["what", "show", "how", "tell"]}}, {"LOWER": "is"}, {"LOWER": "the"}, {"LOWER": "weather"}]
+  ]
+}
+```
+
+---
+
+## Parameter Extraction
+
+Parameters are extracted via two mechanisms:
+
+1. **Named Entities** (e.g., GPE for location, DATE/TIME, PERSON)
+2. **Positional heuristics** from matched tokens (e.g., `NOUN` following "schedule")
+
+Example:
+
+> "Schedule John for dentist at 3pm"
+
+Extracted:
+
+```json
+{
+  "user": "John",
+  "event": "dentist",
+  "time": "3pm"
+}
+```
+
+---
+
+## Core Class: `NLPHandler`
+
+```python
+handler = NLPHandler()
+handler.set_command("Schedule Sarah for dentist tomorrow at 9am.")
+handler.dispatch()
+```
+
+Prints:
+**INPUT**: Schedule Sarah for dentist tomorrow at 9am.
+**PARSED**: 
+```json {
+  "function_name": "schedule_event",
+  "function_params": {
+    "user": "Sarah",
+    "event": "dentist",
+    "time": "tomorrow at 9am"
+  }
+}
+```
+
+---
+
+## Dispatch Logic
+
+If `function_name` is valid, dispatch to your executor:
+
+```python
+getattr(command_executor, function_name)(**function_params)
+```
+
+If no intent matched, fallback to LLM or return:
+
+```json
+{
+  "function_name": null,
+  "function_params": {}
+}
+```
+
+---
+
+## Future Plans
+
+* Robust date parsing (e.g., "next Thursday", "in two hours")
+* Cancel/confirm scheduling via negation ("cancel John's appointment")
+* Improve event inference with dependency parsing
