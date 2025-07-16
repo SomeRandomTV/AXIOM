@@ -47,7 +47,7 @@ class MicHandler:
             # adjust ambience noise
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
             # record the audio
-            audio = self.recognizer.listen(source)
+            audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=15)
             # write the recorded audio to a file to be transcribed(TODO 'change to transcribe in MEMORY not I/O')
             with open("speech_reference.wav", "wb") as f:
                 self.logger.info("Writing audio to file...")
@@ -60,8 +60,6 @@ class MicHandler:
 
             except Exception as e:
                 self.logger.error(f"Error transcribing audio: {e}")
-
-
 
     def get_text(self):
         return self.text
