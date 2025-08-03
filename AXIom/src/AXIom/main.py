@@ -36,6 +36,7 @@ def main():
                 print("→ Function call:", handler.function_call_name)
                 print("→ Target:", handler.function_params)
                 tts.speak("Calling function...")
+                
 
             else:
                 print("Going to llm...")

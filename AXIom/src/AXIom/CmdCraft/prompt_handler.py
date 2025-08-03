@@ -13,31 +13,22 @@ OLLAMA_PID_FILE = "ollama.pid"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_NUM_CTX = 4096 # Context window for the model
 
-# --- Logger Configuration ---
-# Configure logging once at the module level for consistency
-# This makes the logging setup less repetitive and easier to manage.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger(__name__) # Use __name__ for the logger name
-
-
+"""
+Module: OllamaClient
+Provides a high-level interface to interact with the Ollama API forZ
+language model operations. It's designed to be stateless regarding
+individual API calls but manages an internal chat history and
+Ollama service lifecycle.
+    
+# TODO: work on starting/stopping the Ollama service
+"""
 class PromptHandler:
-    """
-    Module: OllamaClient
-    Provides a high-level interface to interact with the Ollama API for
-    language model operations. It's designed to be stateless regarding
-    individual API calls but manages an internal chat history and
-    Ollama service lifecycle.
-    """
-
     def __init__(self,
                  url: str = DEFAULT_OLLAMA_BASE_URL,
                  model: Optional[str] = None,
                  system_prompt: Optional[str] = None,
-                 stream: bool = False) -> None:
+                 stream: bool = False,
+                 log_level: int = logging.INFO) -> None:
         """
         Initializes the Ollama client.
 
@@ -45,18 +36,21 @@ class PromptHandler:
             url (str): The base URL of the Ollama API.
                             Defaults to "http://localhost:11434".
             model (Optional[str]): The model to use for generating responses
-                                   (e.g., "llama2", "mistral"). If None,
-                                   it must be provided during method calls.
+                                (e.g., "llama2", "mistral"). If None,
+                                it must be provided during method calls.
             system_prompt (Optional[str]): A system-level instruction to
-                                           set the context for the model's
-                                           behavior. Defaults to None.
+                                        set the context for the model's
+                                        behavior. Defaults to None.
             stream (bool): If True, responses are streamed token by token.
-                           If False, the complete response is returned at once.
-                           Defaults to False.
+                        If False, the complete response is returned at once.
+                        Defaults to False.
         """
+        
+        # --- Logger Setup ---
+        self.logger = self._setup_logger(log_level)
         # --- API Configuration ---
         if not model:
-            logger.warning("No default model provided. You will need to specify a model for each API call.")
+            self.logger.warning("No default model provided. You will need to specify a model for each API call.")
         self.base_url: str = url
         self.model: Optional[str] = model
         self.system_prompt: Optional[str] = system_prompt
@@ -72,6 +66,22 @@ class PromptHandler:
         # --- Manager Setup ---
         # The manager handles starting/stopping the Ollama service
         self.manager = OllamaManager(OLLAMA_PID_FILE)
+        
+    @staticmethod
+    def _setup_logger(level: int) -> logging.Logger:
+        """
+        Sets up and returns a logger for the Ollama client.
+
+        Args:
+            level (int): Logging level (e.g., logging.INFO, logging.DEBUG).
+
+        Returns:
+            logging.Logger: Configured logger instance.
+        """
+        logger = logging.getLogger("OllamaClient")
+        coloredlogs.install(level=level, logger=logger,
+                            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        return logger   
 
 
     def _ensure_ollama_running(self) -> None:
@@ -81,11 +91,11 @@ class PromptHandler:
         """
         status = self.manager.check_ollama()
         if status != 0:
-            logger.info("=== Ollama Service Not Running: Initiating Startup Process ===")
+            self.logger.info("=== Ollama Service Not Running: Initiating Startup Process ===")
             self.manager.start_ollama()
-            logger.info("=== Ollama Service Started Successfully ===")
+            self.logger.info("=== Ollama Service Started Successfully ===")
         else:
-            logger.debug("Ollama service is already running.")
+            self.logger.debug("Ollama service is already running.")
 
     def _prepare_chat_payload(self, prompt: str) -> Dict[str, Any]:
         """
@@ -117,7 +127,7 @@ class PromptHandler:
                 "num_ctx": DEFAULT_NUM_CTX # Use a constant for magic numbers
             }
         }
-        logger.debug(f"Prepared chat payload: {payload['messages']}") # Use debug for verbose data
+        self.logger.debug(f"Prepared chat payload: {payload['messages']}") # Use debug for verbose data
 
         # Validate that a model is set
         if not payload["model"]:
@@ -143,7 +153,7 @@ class PromptHandler:
             ValueError: If an unsupported HTTP method is provided.
         """
         url = f"{self.base_url}{endpoint}"
-        logger.info(f"Making {method.upper()} request to {url}")
+        self.logger.info(f"Making {method.upper()} request to {url}")
         try:
             if method.lower() == "post":
                 response = requests.post(url, json=json_data)
@@ -155,13 +165,13 @@ class PromptHandler:
             response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
             return response
         except requests.exceptions.ConnectionError:
-            logger.error(f"Failed to connect to Ollama server at {self.base_url}. Is it running?")
+            self.logger.error(f"Failed to connect to Ollama server at {self.base_url}. Is it running?")
             raise
         except requests.exceptions.Timeout:
-            logger.error(f"Request to {url} timed out.")
+            self.logger.error(f"Request to {url} timed out.")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"API request to {url} failed: {e}")
+            self.logger.error(f"API request to {url} failed: {e}")
             raise
 
     def chat(self, prompt: str) -> Optional[str]:
@@ -177,7 +187,7 @@ class PromptHandler:
                            or None if an error occurs or the service is shut down.
         """
         if prompt.lower() in "/bye" or prompt.lower() in "bye":
-            logger.info("User requested shutdown: Initiating Ollama service stop.")
+            self.logger.info("User requested shutdown: Initiating Ollama service stop.")
             self.manager.stop_ollama()
             return "Ollama service stopped. Goodbye!"
 
@@ -203,13 +213,13 @@ class PromptHandler:
 
             return model_response_content
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error during chat request: {e}")
+            self.logger.error(f"Error during chat request: {e}")
             return "I'm sorry, I encountered an error. Please try again later."
         except ValueError as e:
-            logger.error(f"Configuration error for chat: {e}")
+            self.logger.error(f"Configuration error for chat: {e}")
             return "A configuration error occurred. Please check the model settings."
         except Exception as e:
-            logger.error(f"An unexpected error occurred during chat: {e}", exc_info=True)
+            self.logger.error(f"An unexpected error occurred during chat: {e}", exc_info=True)
             return "An unexpected error occurred. Please contact support."
 
     def list_models(self) -> List[Dict[str, Any]]:
@@ -228,7 +238,7 @@ class PromptHandler:
             response = self._make_api_request("/api/tags", method="get")
             return response.json().get("models", [])
         except requests.exceptions.RequestException:
-            logger.error("Failed to list models.")
+            self.logger.error("Failed to list models.")
             raise
 
     def pull_model(self, model_name: str) -> Dict[str, Any]:
@@ -252,7 +262,7 @@ class PromptHandler:
             response = self._make_api_request("/api/pull", method="post", json_data=payload)
             return response.json()
         except requests.exceptions.RequestException:
-            logger.error(f"Failed to pull model: {model_name}.")
+            self.logger.error(f"Failed to pull model: {model_name}.")
             raise
 
     def get_model_info(self, model_name: str) -> Dict[str, Any]:
@@ -274,19 +284,19 @@ class PromptHandler:
             response = self._make_api_request("/api/show", method="post", json_data=payload)
             return response.json()
         except requests.exceptions.RequestException:
-            logger.error(f"Failed to get info for model: {model_name}.")
+            self.logger.error(f"Failed to get info for model: {model_name}.")
             raise
 
     def create_embedding(self,
-                         prompt: str,
-                         model: Optional[str] = None) -> List[float]: # Embeddings are typically list of floats
+                        prompt: str,
+                        model: Optional[str] = None) -> List[float]: # Embeddings are typically list of floats
         """
         Generates an embedding vector for a given prompt using an Ollama model.
 
         Args:
             prompt (str): The text prompt for which to create the embedding.
             model (Optional[str]): The model to use for creating the embedding.
-                                   If None, the client's default model is used.
+            If None, the client's default model is used.
 
         Returns:
             List[float]: A list of floats representing the embedding vector.
@@ -313,8 +323,7 @@ class PromptHandler:
                 raise ValueError("Embedding not found in the response.")
             return embedding
         except requests.exceptions.RequestException:
-
-            raise logger.error(f"Failed to create embedding for prompt: '{prompt[:50]}...'")
+            self.logger.error(f"Failed to create embedding for prompt: '{prompt[:50]}...'")
 
 
 

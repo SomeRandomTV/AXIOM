@@ -63,4 +63,3 @@ class MicHandler:
 
     def get_text(self):
         return self.text
-

@@ -3,3 +3,6 @@
 **/model_cache/
 **/__pycache__/
 **/.DS_STORE
+**/ollama.pid
+**/speech_reference.wav
+**/google-cloud-sdk
