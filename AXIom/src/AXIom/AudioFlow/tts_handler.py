@@ -12,14 +12,6 @@ import time
 from typing import Optional, Callable, Union
 from gtts import gTTS
 
-# Try to import Coqui TTS for local synthesis
-try:
-    from TTS.api import TTS
-    COQUI_AVAILABLE = True
-except ImportError:
-    COQUI_AVAILABLE = False
-    TTS = None
-
 # Try to import audio playback libraries
 try:
     import pyaudio
@@ -31,41 +23,35 @@ except ImportError:
     np = None
 
 """
-Enhanced Module: TTSHandler
-Provides fast, flexible text-to-speech synthesis using multiple engines:
-- Coqui TTS for high-quality local synthesis with streaming
-- gTTS for cloud-based synthesis as fallback
+Enhanced Module: TTSHandler (Python 3.12 Compatible)
+Provides fast, flexible text-to-speech synthesis using:
+- gTTS for cloud-based synthesis (primary)
 - Real-time audio streaming capabilities
-- Cross-platform audio playback
+- Cross-platform audio playback with timeout protection
+- Enhanced fallback mechanisms
 """
 class TTSHandler:
     def __init__(self, 
-                 lang: str = 'en', 
-                 slow: bool = False, 
-                 log_level: int = logging.INFO,
-                 use_local: bool = True,
-                 streaming: bool = True,
-                 voice_model: str = None):
+                lang: str = 'en', 
+                slow: bool = False, 
+                log_level: int = logging.INFO,
+                streaming: bool = True,
+                timeout: float = 10.0):
         """
-        Initialize enhanced TTSHandler with local and streaming capabilities.
+        Initialize enhanced TTSHandler with cloud TTS and streaming capabilities.
 
         Args:
             lang (str): Language code (default 'en').
             slow (bool): Use slower speech speed (default False).
             log_level (int): Logging level (default logging.INFO).
-            use_local (bool): Prioritize local TTS over cloud (default True).
             streaming (bool): Enable real-time streaming (default True).
-            voice_model (str): Specific Coqui TTS model to use.
+            timeout (float): Default timeout for TTS operations (default 10.0).
         """
         self.lang = lang
         self.slow = slow
-        self.use_local = use_local
         self.streaming = streaming
-        self.voice_model = voice_model
+        self.default_timeout = timeout
         self.logger = self._setup_logger(log_level)
-        
-        # Initialize TTS engines
-        self._init_tts_engines()
         
         # Streaming components
         self.audio_queue = queue.Queue()
@@ -76,59 +62,32 @@ class TTSHandler:
         # Performance metrics
         self.synthesis_times = []
         self.streaming_latency = []
+        
+        # Audio playback method priority
+        self._init_audio_methods()
 
-    def _init_tts_engines(self):
-        """Initialize available TTS engines."""
-        self.coqui_tts = None
-        self.available_models = []
+    def _init_audio_methods(self):
+        """Initialize available audio playback methods."""
+        self.audio_methods = []
         
-        if COQUI_AVAILABLE:
-            try:
-                # Get available models
-                self.available_models = TTS.list_models()
-                self.logger.info(f"Available Coqui TTS models: {len(self.available_models)}")
-                
-                # Select appropriate model
-                if self.voice_model:
-                    if self.voice_model in self.available_models:
-                        model_name = self.voice_model
-                    else:
-                        self.logger.warning(f"Specified model {self.voice_model} not found, using default")
-                        model_name = self._get_default_model()
-                else:
-                    model_name = self._get_default_model()
-                
-                # Initialize Coqui TTS
-                self.coqui_tts = TTS(model_name=model_name)
-                self.logger.info(f"Initialized Coqui TTS with model: {model_name}")
-                
-            except Exception as e:
-                self.logger.error(f"Failed to initialize Coqui TTS: {e}")
-                self.coqui_tts = None
+        # Check system players first (better MP3 compatibility)
+        ffplay = shutil.which('ffplay')
+        if ffplay:
+            self.audio_methods.append('ffplay')
         
-        if not self.coqui_tts:
-            self.logger.info("Coqui TTS not available, will use gTTS fallback")
-
-    def _get_default_model(self) -> str:
-        """Get the best default model for the specified language."""
-        # Priority order for English models
-        english_models = [
-            "tts_models/en/ljspeech/tacotron2-DDC",
-            "tts_models/en/ljspeech/fast_pitch",
-            "tts_models/en/vctk/vits",
-            "tts_models/en/ljspeech/glow-tts"
-        ]
+        if sys.platform == "darwin":
+            afplay = shutil.which('afplay')
+            if afplay:
+                self.audio_methods.append('afplay')
         
-        # Check for available English models
-        for model in english_models:
-            if model in self.available_models:
-                return model
+        # Check PyAudio (good for WAV, problematic for MP3)
+        if PYAUDIO_AVAILABLE:
+            self.audio_methods.append('pyaudio')
         
-        # Fallback to first available model
-        if self.available_models:
-            return self.available_models[0]
+        # Always available fallback
+        self.audio_methods.append('file')
         
-        return "tts_models/en/ljspeech/tacotron2-DDC"
+        self.logger.info(f"Available audio methods: {self.audio_methods}")
 
     def _setup_logger(self, level: int) -> logging.Logger:
         """
@@ -146,127 +105,92 @@ class TTSHandler:
         )
         return logging.getLogger('EnhancedTTSHandler')
 
-    def synthesize_to_file(self, text: str, output_path: str = None, use_local: bool = None) -> str:
+    def synthesize_to_file(self, text: str, output_path: str = None) -> str:
         """
-        Convert text to speech and save as an audio file using best available engine.
+        Convert text to speech and save as an MP3 file using gTTS.
 
         Args:
             text (str): Text to convert.
             output_path (str, optional): Path to save the file. Defaults to system temp.
-            use_local (bool, optional): Force local or cloud TTS. Defaults to instance setting.
 
         Raises:
             ValueError: If text is empty.
 
         Returns:
-            str: Path to the saved audio file.
+            str: Path to the saved MP3 file.
         """
         if not text:
             raise ValueError("Text must not be empty.")
 
-        use_local = use_local if use_local is not None else self.use_local
-        
         start_time = time.time()
         
         try:
-            if use_local and self.coqui_tts:
-                # Use Coqui TTS for local synthesis
-                if output_path is None:
-                    output_path = os.path.join(tempfile.gettempdir(), 'tts_local.wav')
-                
-                self.coqui_tts.tts_to_file(text=text, file_path=output_path)
-                self.logger.info(f"Local TTS synthesis completed in {time.time() - start_time:.2f}s")
-                
-            else:
-                # Fallback to gTTS
-                if output_path is None:
-                    output_path = os.path.join(tempfile.gettempdir(), 'tts_cloud.mp3')
-                
-                tts = gTTS(text=text, lang=self.lang, slow=self.slow)
-                tts.save(output_path)
-                self.logger.info(f"Cloud TTS synthesis completed in {time.time() - start_time:.2f}s")
+            tts = gTTS(text=text, lang=self.lang, slow=self.slow)
+            if output_path is None:
+                output_path = os.path.join(tempfile.gettempdir(), 'tts_cloud.mp3')
+            tts.save(output_path)
             
             synthesis_time = time.time() - start_time
             self.synthesis_times.append(synthesis_time)
             
+            self.logger.info(f"Cloud TTS synthesis completed in {synthesis_time:.2f}s")
             self.logger.info(f"Saved TTS audio to {output_path}")
             return output_path
             
         except Exception as e:
             self.logger.error(f"TTS synthesis failed: {e}")
-            # Fallback to gTTS if local fails
-            if use_local and self.coqui_tts:
-                self.logger.info("Falling back to gTTS...")
-                return self.synthesize_to_file(text, output_path, use_local=False)
             raise
 
-    def synthesize_to_bytes(self, text: str, use_local: bool = None) -> bytes:
+    def synthesize_to_bytes(self, text: str) -> bytes:
         """
-        Convert text to speech and return audio data as bytes.
+        Convert text to speech and return MP3 data as bytes.
 
         Args:
             text (str): Text to convert.
-            use_local (bool, optional): Force local or cloud TTS. Defaults to instance setting.
 
         Raises:
             ValueError: If text is empty.
 
         Returns:
-            bytes: Audio data in memory.
+            bytes: MP3 audio data in memory.
         """
         if not text:
             raise ValueError("Text must not be empty.")
 
-        use_local = use_local if use_local is not None else self.use_local
+        start_time = time.time()
         
         try:
-            if use_local and self.coqui_tts:
-                # Use Coqui TTS for local synthesis
-                audio_data = self.coqui_tts.tts(text=text)
-                
-                # Convert numpy array to bytes
-                if np is not None:
-                    audio_bytes = (audio_data * 32767).astype(np.int16).tobytes()
-                else:
-                    # Fallback conversion
-                    audio_bytes = audio_data.tobytes()
-                
-                self.logger.info("Local TTS synthesis to memory completed")
-                return audio_bytes
-                
-            else:
-                # Fallback to gTTS
-                tts = gTTS(text=text, lang=self.lang, slow=self.slow)
-                buffer = io.BytesIO()
-                tts.write_to_fp(buffer)
-                self.logger.info("Cloud TTS synthesis to memory completed")
-                return buffer.getvalue()
-                
+            tts = gTTS(text=text, lang=self.lang, slow=self.slow)
+            buffer = io.BytesIO()
+            tts.write_to_fp(buffer)
+            
+            synthesis_time = time.time() - start_time
+            self.synthesis_times.append(synthesis_time)
+            
+            self.logger.info(f"Cloud TTS synthesis to memory completed in {synthesis_time:.2f}s")
+            return buffer.getvalue()
+            
         except Exception as e:
             self.logger.error(f"TTS synthesis to memory failed: {e}")
-            # Fallback to gTTS if local fails
-            if use_local and self.coqui_tts:
-                self.logger.info("Falling back to gTTS...")
-                return self.synthesize_to_bytes(text, use_local=False)
             raise
 
-    def stream_speak(self, text: str, chunk_size: int = 50, use_local: bool = None) -> None:
+    def stream_speak(self, text: str, chunk_size: int = 50, timeout: float = None) -> None:
         """
         Stream text-to-speech in real-time by processing text in chunks.
 
         Args:
             text (str): Text to speak.
             chunk_size (int): Number of characters per chunk for streaming.
-            use_local (bool, optional): Force local or cloud TTS. Defaults to instance setting.
+            timeout (float): Timeout for each chunk synthesis.
         """
         if not text:
             raise ValueError("Text must not be empty.")
 
         if not self.streaming:
             self.logger.warning("Streaming not enabled, falling back to regular speak")
-            return self.speak(text)
+            return self.speak(text, timeout=timeout)
 
-        use_local = use_local if use_local is not None else self.use_local
+        timeout = timeout or self.default_timeout
         
         # Split text into chunks for streaming
         text_chunks = self._chunk_text(text, chunk_size)
@@ -278,7 +202,7 @@ class TTSHandler:
         self.is_streaming = True
         self.stream_thread = threading.Thread(
             target=self._stream_audio_chunks,
-            args=(text_chunks, use_local)
+            args=(text_chunks, timeout)
         )
         self.stream_thread.start()
 
@@ -292,7 +216,7 @@ class TTSHandler:
             
             # Break on sentence boundaries or chunk size
             if (char in '.!?' and len(current_chunk) >= chunk_size // 2) or \
-               len(current_chunk) >= chunk_size:
+                len(current_chunk) >= chunk_size:
                 chunks.append(current_chunk.strip())
                 current_chunk = ""
         
@@ -302,32 +226,24 @@ class TTSHandler:
         
         return chunks
 
-    def _stream_audio_chunks(self, text_chunks: list, use_local: bool):
-        """Stream audio chunks in real-time."""
+    def _stream_audio_chunks(self, text_chunks: list, timeout: float):
+        """Stream text-to-speech in real-time by processing text in chunks."""
         try:
+            # Process all chunks first, then play them sequentially
+            audio_chunks = []
+            
             for i, chunk in enumerate(text_chunks):
                 if not self.is_streaming:
                     break
                 
                 start_time = time.time()
                 
-                # Synthesize chunk
+                # Synthesize chunk with timeout
                 try:
-                    if use_local and self.coqui_tts:
-                        audio_data = self.coqui_tts.tts(text=chunk)
-                        if np is not None:
-                            audio_bytes = (audio_data * 32767).astype(np.int16).tobytes()
-                        else:
-                            audio_bytes = audio_data.tobytes()
-                    else:
-                        # Fallback to gTTS for chunks
-                        tts = gTTS(text=chunk, lang=self.lang, slow=self.slow)
-                        buffer = io.BytesIO()
-                        tts.write_to_fp(buffer)
-                        audio_bytes = buffer.getvalue()
+                    audio_bytes = self.synthesize_to_bytes(chunk)
                     
-                    # Queue audio for playback
-                    self.audio_queue.put((i, audio_bytes))
+                    # Store chunk with its data
+                    audio_chunks.append((i, audio_bytes))
                     
                     synthesis_time = time.time() - start_time
                     self.synthesis_times.append(synthesis_time)
@@ -338,173 +254,437 @@ class TTSHandler:
                     self.logger.error(f"Failed to synthesize chunk {i+1}: {e}")
                     continue
                 
-                # Small delay between chunks for natural flow
+                # Small delay between synthesis to prevent overwhelming
                 time.sleep(0.1)
             
-            # Signal end of streaming
-            self.audio_queue.put((None, None))
+            # Now play all chunks sequentially
+            if audio_chunks:
+                self.logger.info(f"Playing {len(audio_chunks)} audio chunks sequentially...")
+                self._play_chunks_sequentially(audio_chunks)
             
         except Exception as e:
             self.logger.error(f"Streaming failed: {e}")
         finally:
             self.is_streaming = False
 
-    def _start_audio_stream(self):
-        """Start audio playback stream."""
-        if not PYAUDIO_AVAILABLE:
-            self.logger.warning("PyAudio not available, cannot start audio stream")
-            return False
-        
+    def _play_chunks_sequentially(self, audio_chunks):
+        """Play audio chunks one after another without overlap."""
         try:
-            self.audio_stream = self.audio.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=22050,  # Standard rate for TTS
-                output=True
-            )
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to start audio stream: {e}")
-            return False
-
-    def _play_audio_stream(self):
-        """Play audio from the queue in real-time."""
-        if not self._start_audio_stream():
-            return
-        
-        try:
-            while self.is_streaming or not self.audio_queue.empty():
-                try:
-                    chunk_id, audio_data = self.audio_queue.get(timeout=0.1)
-                    
-                    if chunk_id is None:  # End signal
-                        break
-                    
-                    if audio_data:
-                        start_time = time.time()
-                        
-                        # Play audio chunk
-                        self.audio_stream.write(audio_data)
-                        
-                        playback_time = time.time() - start_time
-                        self.streaming_latency.append(playback_time)
-                        
-                        self.logger.debug(f"Chunk {chunk_id+1} played in {playback_time:.2f}s")
+            for i, (chunk_id, audio_data) in enumerate(audio_chunks):
+                if not self.is_streaming:
+                    break
                 
-                except queue.Empty:
-                    continue
-                except Exception as e:
-                    self.logger.error(f"Failed to play audio chunk: {e}")
-                    continue
-                    
+                self.logger.debug(f"Playing chunk {chunk_id+1}/{len(audio_chunks)}")
+                
+                # Play this chunk using the best available method
+                start_time = time.time()
+                self._play_audio_chunk(audio_data)
+                
+                playback_time = time.time() - start_time
+                self.streaming_latency.append(playback_time)
+                
+                self.logger.debug(f"Chunk {chunk_id+1} played in {playback_time:.2f}s")
+                
+                # Wait for this chunk to finish before playing the next
+                # This prevents overlap and ensures sequential playback
+                time.sleep(0.5)  # Buffer time between chunks
+                
         except Exception as e:
-            self.logger.error(f"Audio streaming failed: {e}")
-        finally:
-            if self.audio_stream:
-                self.audio_stream.stop_stream()
-                self.audio_stream.close()
+            self.logger.error(f"Sequential chunk playback failed: {e}")
 
-    def speak(self, text: str, use_local: bool = None) -> None:
+    def _play_audio_chunk(self, audio_bytes):
+        """Play a single audio chunk using the best available method."""
+        # Try different audio methods in priority order
+        for method in self.audio_methods:
+            try:
+                if method == 'ffplay':
+                    self._play_chunk_with_ffplay(audio_bytes)
+                    return
+                elif method == 'afplay':
+                    self._play_chunk_with_afplay(audio_bytes)
+                    return
+                elif method == 'file':
+                    self._play_chunk_with_file(audio_bytes)
+                    return
+                # Skip PyAudio for streaming as it has format issues
+            except Exception as e:
+                self.logger.debug(f"Audio method {method} failed for chunk: {e}")
+                continue
+        
+        # If all methods failed, log the error
+        self.logger.warning("All audio methods failed for chunk playback")
+
+    def _play_chunk_with_ffplay(self, audio_bytes):
+        """Play audio chunk using ffplay with proper completion detection."""
+        try:
+            # Use ffplay with autoexit to ensure it completes
+            proc = subprocess.Popen(
+                ['ffplay', '-autoexit', '-nodisp', '-hide_banner', '-loglevel', 'error', '-'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            # Send audio data and wait for completion
+            proc.communicate(audio_bytes, timeout=10.0)
+            
+            # Ensure process is completely finished
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait()
+                
+        except subprocess.TimeoutExpired:
+            self.logger.warning("ffplay chunk playback timed out, killing process")
+            proc.kill()
+            proc.wait()
+            raise Exception("ffplay chunk playback timed out")
+        except Exception as e:
+            raise Exception(f"ffplay chunk playback failed: {e}")
+
+    def _play_chunk_with_afplay(self, audio_bytes):
+        """Play audio chunk using afplay with proper completion detection."""
+        try:
+            # Convert MP3 to WAV for afplay
+            import tempfile
+            import subprocess
+            
+            mp3_temp = os.path.join(tempfile.gettempdir(), f'chunk_{time.time()}.mp3')
+            wav_temp = os.path.join(tempfile.gettempdir(), f'chunk_{time.time()}.wav')
+            
+            # Save MP3 bytes
+            with open(mp3_temp, 'wb') as f:
+                f.write(audio_bytes)
+            
+            # Convert to WAV
+            ffmpeg_cmd = [
+                'ffmpeg', '-y', '-i', mp3_temp, '-f', 'wav', wav_temp
+            ]
+            subprocess.run(ffmpeg_cmd, capture_output=True, timeout=5.0)
+            
+            if os.path.exists(wav_temp):
+                # Play WAV file and wait for completion
+                result = subprocess.run(['afplay', wav_temp], timeout=10.0)
+                
+                # Clean up
+                try:
+                    os.remove(mp3_temp)
+                    os.remove(wav_temp)
+                except:
+                    pass
+            else:
+                raise Exception("WAV conversion failed")
+                
+        except Exception as e:
+            raise Exception(f"afplay chunk playback failed: {e}")
+
+    def _play_chunk_with_file(self, audio_bytes):
+        """Play audio chunk by saving to file and using system player."""
+        try:
+            import tempfile
+            
+            # Save to temporary MP3 file
+            temp_file = os.path.join(tempfile.gettempdir(), f'chunk_{time.time()}.mp3')
+            with open(temp_file, 'wb') as f:
+                f.write(audio_bytes)
+            
+            # Play using system player
+            self.play_audio(temp_file)
+            
+            # Wait for playback to complete (estimate based on file size)
+            # Rough estimate: 1 second per 10KB of audio data
+            estimated_duration = max(1, len(audio_bytes) / 10000)
+            time.sleep(estimated_duration)
+            
+            # Clean up
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+                
+        except Exception as e:
+            raise Exception(f"File chunk playback failed: {e}")
+
+    def speak(self, text: str, timeout: float = None) -> None:
         """
-        Speak text using available playback method with enhanced engine selection.
+        Speak text using available playback method with timeout protection.
 
         Args:
             text (str): Text to speak.
-            use_local (bool, optional): Force local or cloud TTS. Defaults to instance setting.
+            timeout (float): Maximum time to wait for TTS completion in seconds.
         """
         if not text:
             raise ValueError("Text must not be empty. ARA must say something.")
 
-        use_local = use_local if use_local is not None else self.use_local
+        timeout = timeout or self.default_timeout
         
         print(f"ARA: {text}")
         
-        try:
-            # Try local TTS first if available and requested
-            if use_local and self.coqui_tts:
-                self.logger.info("Using local Coqui TTS")
-                self._speak_local(text)
-            else:
-                self.logger.info("Using cloud gTTS")
-                self._speak_cloud(text)
-                
-        except Exception as e:
-            self.logger.error(f"TTS failed: {e}")
-            # Fallback to cloud TTS
+        # Use threading with timeout to prevent hanging
+        result_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        def _speak_worker():
             try:
-                self._speak_cloud(text)
-            except Exception as fallback_error:
-                self.logger.error(f"Fallback TTS also failed: {fallback_error}")
-
-    def _speak_local(self, text: str):
-        """Speak using local Coqui TTS."""
+                # Try different audio methods in priority order
+                for method in self.audio_methods:
+                    try:
+                        if method == 'pyaudio':
+                            self._speak_with_pyaudio(text)
+                        elif method == 'ffplay':
+                            self._speak_ffplay(text)
+                        elif method == 'afplay':
+                            self._speak_afplay(text)
+                        elif method == 'file':
+                            self._fallback_speak(text)
+                        
+                        result_queue.put("success")
+                        return
+                        
+                    except Exception as e:
+                        self.logger.warning(f"Audio method '{method}' failed: {e}")
+                        continue
+                
+                # If all methods failed
+                error_queue.put(Exception("All audio methods failed"))
+                
+            except Exception as e:
+                error_queue.put(e)
+        
+        # Start TTS in separate thread
+        tts_thread = threading.Thread(target=_speak_worker)
+        tts_thread.daemon = True
+        tts_thread.start()
+        
+        # Wait for completion with timeout
         try:
-            # Synthesize to memory first
-            audio_data = self.coqui_tts.tts(text=text)
+            tts_thread.join(timeout=timeout)
             
-            # Try to play directly if PyAudio is available
-            if PYAUDIO_AVAILABLE:
-                self._play_audio_direct(audio_data)
+            if tts_thread.is_alive():
+                self.logger.warning(f"TTS operation timed out after {timeout}s")
+                # Force fallback
+                try:
+                    self._fallback_speak(text)
+                except Exception as fallback_error:
+                    self.logger.error(f"Fallback TTS also failed: {fallback_error}")
             else:
-                # Fallback to file-based playback
-                self._fallback_speak(text, use_local=True)
+                # Check for errors
+                try:
+                    error = error_queue.get_nowait()
+                    self.logger.error(f"TTS failed: {error}")
+                    # Try fallback
+                    try:
+                        self._fallback_speak(text)
+                    except Exception as fallback_error:
+                        self.logger.error(f"Fallback TTS also failed: {fallback_error}")
+                except queue.Empty:
+                    # No errors, success
+                    pass
+                    
+        except Exception as e:
+            self.logger.error(f"Unexpected error in TTS: {e}")
+            # Final fallback attempt
+            try:
+                self._fallback_speak(text)
+            except Exception as final_error:
+                self.logger.error(f"All TTS methods failed: {final_error}")
+
+    def _speak_with_pyaudio(self, text: str):
+        """Speak using PyAudio for direct playback."""
+        if not PYAUDIO_AVAILABLE:
+            raise Exception("PyAudio not available")
+        
+        audio_bytes = self.synthesize_to_bytes(text)
+        
+        # Create temporary audio stream with proper settings
+        audio = pyaudio.PyAudio()
+        
+        # Try to determine audio format from the MP3 data
+        # For MP3 from gTTS, we need to convert to proper format
+        try:
+            # Use ffmpeg to convert MP3 to WAV for better PyAudio compatibility
+            import subprocess
+            import tempfile
+            
+            # Create temporary files
+            mp3_temp = os.path.join(tempfile.gettempdir(), 'tts_temp.mp3')
+            wav_temp = os.path.join(tempfile.gettempdir(), 'tts_temp.wav')
+            
+            # Save MP3 bytes to temp file
+            with open(mp3_temp, 'wb') as f:
+                f.write(audio_bytes)
+            
+            # Convert MP3 to WAV using ffmpeg
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',  # Overwrite output
+                '-i', mp3_temp,  # Input MP3
+                '-acodec', 'pcm_s16le',  # 16-bit PCM
+                '-ar', '22050',  # Sample rate
+                '-ac', '1',      # Mono
+                wav_temp         # Output WAV
+            ]
+            
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, timeout=10.0)
+            
+            if result.returncode == 0 and os.path.exists(wav_temp):
+                # Read WAV file and play with PyAudio
+                with open(wav_temp, 'rb') as f:
+                    wav_data = f.read()
+                
+                # Skip WAV header (44 bytes) to get raw PCM data
+                pcm_data = wav_data[44:]
+                
+                # Create PyAudio stream
+                stream = audio.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=22050,
+                    output=True,
+                    frames_per_buffer=1024
+                )
+                
+                # Play audio
+                stream.write(pcm_data)
+                stream.stop_stream()
+                stream.close()
+                audio.terminate()
+                
+                self.logger.info("Audio played directly using PyAudio (converted)")
+                
+                # Clean up temp files
+                try:
+                    os.remove(mp3_temp)
+                    os.remove(wav_temp)
+                except:
+                    pass
+                    
+            else:
+                raise Exception("FFmpeg conversion failed")
                 
         except Exception as e:
-            self.logger.error(f"Local TTS failed: {e}")
-            raise
-
-    def _speak_cloud(self, text: str):
-        """Speak using cloud gTTS with existing fallback methods."""
-        try:
-            ffplay = shutil.which('ffplay')
-            afplay = shutil.which('afplay') if sys.platform == "darwin" else None
-
-            if ffplay:
-                self._speak_ffplay(text, ffplay)
-            elif afplay:
-                self._speak_afplay(text, afplay)
-            else:
-                self._fallback_speak(text, use_local=False)
-        except Exception as e:
-            self.logger.error(f"Cloud TTS failed: {e}")
-            raise
-
-    def _play_audio_direct(self, audio_data):
-        """Play audio data directly using PyAudio."""
-        try:
-            if np is not None:
-                # Convert to proper format
-                audio_int16 = (audio_data * 32767).astype(np.int16)
-                audio_bytes = audio_int16.tobytes()
-            else:
-                audio_bytes = audio_data.tobytes()
+            self.logger.warning(f"PyAudio conversion failed: {e}, falling back to direct playback")
             
-            # Create temporary audio stream
-            audio = pyaudio.PyAudio()
-            stream = audio.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=22050,
-                output=True
+            # Fallback: try direct MP3 playback (might not work well)
+            try:
+                stream = audio.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=22050,
+                    output=True,
+                    frames_per_buffer=1024
+                )
+                
+                # Convert MP3 bytes to something PyAudio can handle
+                # This is a basic conversion that might not work perfectly
+                import struct
+                # Try to extract some audio data (this is a simplified approach)
+                audio_data = audio_bytes[1000:10000]  # Skip header, take some data
+                if len(audio_data) > 0:
+                    # Convert to 16-bit PCM (this is very basic)
+                    pcm_data = struct.pack('h' * (len(audio_data) // 2), 
+                                         *[int(b) * 256 for b in audio_data[::2]])
+                    stream.write(pcm_data)
+                
+                stream.stop_stream()
+                stream.close()
+                audio.terminate()
+                
+                self.logger.info("Audio played with basic PyAudio fallback")
+                
+            except Exception as fallback_error:
+                self.logger.error(f"PyAudio fallback also failed: {fallback_error}")
+                audio.terminate()
+                raise
+
+    def _speak_ffplay(self, text: str) -> None:
+        """
+        Play streamed audio in memory using ffplay.
+
+        Args:
+            text (str): Text to convert and speak.
+        """
+        audio_bytes = self.synthesize_to_bytes(text)
+        try:
+            self.logger.info("Trying to speak using ffplay...")
+            proc = subprocess.Popen(
+                ['ffplay', '-autoexit', '-nodisp', '-hide_banner', '-loglevel', 'error', '-'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
-            
-            stream.write(audio_bytes)
-            stream.stop_stream()
-            stream.close()
-            audio.terminate()
-            
-            self.logger.info("Audio played directly using PyAudio")
-            
+            proc.communicate(audio_bytes, timeout=10.0)
+        except subprocess.TimeoutExpired:
+            self.logger.warning("ffplay timed out, killing process")
+            proc.kill()
+            raise Exception("ffplay timed out")
         except Exception as e:
-            self.logger.error(f"Direct audio playback failed: {e}")
+            self.logger.warning(f"ffplay failed ({e})")
             raise
+        finally:
+            self.logger.info("Done speaking (ffplay).")
 
-    def _fallback_speak(self, text: str, use_local: bool = False):
+    def _speak_afplay(self, text: str) -> None:
+        """
+        Play streamed audio in memory using afplay (macOS).
+
+        Args:
+            text (str): Text to convert and speak.
+        """
+        audio_bytes = self.synthesize_to_bytes(text)
+        try:
+            self.logger.info("Trying to speak using afplay...")
+            # afplay doesn't support stdin, so we need to save to temp file first
+            temp_file = os.path.join(tempfile.gettempdir(), 'tts_afplay_temp.wav')
+            
+            # Convert MP3 bytes to WAV format for afplay
+            try:
+                # Try to use ffmpeg to convert MP3 to WAV
+                import subprocess
+                ffmpeg_proc = subprocess.Popen(
+                    ['ffmpeg', '-f', 'mp3', '-i', '-', '-f', 'wav', temp_file],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                ffmpeg_proc.communicate(audio_bytes, timeout=10.0)
+                
+                if os.path.exists(temp_file):
+                    # Play the WAV file with afplay
+                    proc = subprocess.run(['afplay', temp_file], timeout=10.0)
+                    self.logger.info("Done speaking (afplay).")
+                else:
+                    raise Exception("Failed to create WAV file")
+                    
+            except Exception as e:
+                self.logger.warning(f"afplay conversion failed ({e}), falling back to direct playback")
+                # Fallback: try to play MP3 directly (might not work)
+                proc = subprocess.Popen(['afplay', '-'], stdin=subprocess.PIPE)
+                proc.communicate(audio_bytes, timeout=10.0)
+                self.logger.info("Done speaking (afplay fallback).")
+                
+        except subprocess.TimeoutExpired:
+            self.logger.warning("afplay timed out, killing process")
+            if 'proc' in locals():
+                proc.kill()
+            raise Exception("afplay timed out")
+        except Exception as e:
+            self.logger.warning(f"afplay in-memory failed ({e})")
+            raise
+        finally:
+            # Clean up temp file
+            if 'temp_file' in locals() and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+
+    def _fallback_speak(self, text: str) -> None:
         """Fallback to saving audio to a file and using default system playback."""
-        path = self.synthesize_to_file(text, use_local=use_local)
+        path = self.synthesize_to_file(text)
         try:
             self.logger.info("Trying to fallback to file playback...")
             self.play_audio(path)
+            # Wait for playback to complete
+            time.sleep(2)
         except Exception as e:
             self.logger.warning(f"Fallback to file playback failed ({e})")
         finally:
@@ -528,45 +708,6 @@ class TTSHandler:
         opener = 'start' if os.name == 'nt' else ('open' if sys.platform == 'darwin' else 'xdg-open')
         os.system(f"{opener} '{file_path}'")
 
-    def _speak_ffplay(self, text: str, ffplay_path: str) -> None:
-        """
-        Play streamed audio in memory using ffplay.
-
-        Args:
-            text (str): Text to convert and speak.
-            ffplay_path (str): Path to ffplay binary.
-        """
-        audio_bytes = self.synthesize_to_bytes(text)
-        try:
-            self.logger.info("Trying to speak using ffplay...")
-            proc = subprocess.Popen(
-                [ffplay_path, '-autoexit', '-nodisp', '-hide_banner', '-loglevel', 'error', '-'],
-                stdin=subprocess.PIPE
-            )
-            proc.communicate(audio_bytes)
-        except Exception as e:
-            self.logger.warning(f"ffplay failed ({e})")
-        finally:
-            self.logger.info("Done speaking (ffplay).")
-
-    def _speak_afplay(self, text: str, afplay_path: str) -> None:
-        """
-        Play streamed audio in memory using afplay (macOS).
-
-        Args:
-            text (str): Text to convert and speak.
-            afplay_path (str): Path to afplay binary.
-        """
-        audio_bytes = self.synthesize_to_bytes(text)
-        try:
-            self.logger.info("Trying to speak using afplay...")
-            proc = subprocess.Popen([afplay_path, '-'], stdin=subprocess.PIPE)
-            proc.communicate(audio_bytes)
-        except Exception as e:
-            self.logger.warning(f"afplay in-memory failed ({e}), will fallback to file")
-        finally:
-            self.logger.info("Done speaking (afplay).")
-
     def get_performance_stats(self) -> dict:
         """Get performance statistics for TTS operations."""
         stats = {
@@ -574,9 +715,9 @@ class TTSHandler:
             'avg_synthesis_time': 0,
             'total_streaming_operations': len(self.streaming_latency),
             'avg_streaming_latency': 0,
-            'local_tts_available': self.coqui_tts is not None,
             'streaming_enabled': self.streaming,
-            'available_models': len(self.available_models) if self.available_models else 0
+            'available_audio_methods': self.audio_methods,
+            'pyaudio_available': PYAUDIO_AVAILABLE
         }
         
         if self.synthesis_times:
@@ -586,6 +727,64 @@ class TTSHandler:
             stats['avg_streaming_latency'] = sum(self.streaming_latency) / len(self.streaming_latency)
         
         return stats
+
+    def test_audio(self) -> bool:
+        """Test audio playback capabilities and return success status."""
+        self.logger.info("Testing audio playback capabilities...")
+        
+        # Test PyAudio if available
+        if PYAUDIO_AVAILABLE:
+            try:
+                audio = pyaudio.PyAudio()
+                device_count = audio.get_device_count()
+                self.logger.info(f"PyAudio: {device_count} audio devices found")
+                
+                # Test basic audio stream creation
+                stream = audio.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=22050,
+                    output=True,
+                    frames_per_buffer=1024
+                )
+                stream.close()
+                audio.terminate()
+                
+                self.logger.info("PyAudio test: SUCCESS")
+                return True
+                
+            except Exception as e:
+                self.logger.error(f"PyAudio test: FAILED - {e}")
+                return False
+        else:
+            self.logger.info("PyAudio not available")
+            return False
+    
+    def get_audio_info(self) -> dict:
+        """Get information about available audio capabilities."""
+        info = {
+            'pyaudio_available': PYAUDIO_AVAILABLE,
+            'system_audio_players': {}
+        }
+        
+        # Check system audio players
+        ffplay = shutil.which('ffplay')
+        afplay = shutil.which('afplay') if sys.platform == "darwin" else None
+        
+        info['system_audio_players']['ffplay'] = ffplay is not None
+        info['system_audio_players']['afplay'] = afplay is not None
+        
+        # Check PyAudio details if available
+        if PYAUDIO_AVAILABLE:
+            try:
+                audio = pyaudio.PyAudio()
+                info['pyaudio_devices'] = audio.get_device_count()
+                info['pyaudio_default_output'] = audio.get_default_output_device_info()
+                audio.terminate()
+            except Exception as e:
+                info['pyaudio_error'] = str(e)
+        
+        return info
 
     def stop_streaming(self):
         """Stop current streaming operation."""
@@ -608,34 +807,33 @@ class TTSHandler:
             except queue.Empty:
                 break
 
-
-def main():
-    # Test the enhanced TTS handler
-    tts = TTSHandler(use_local=True, streaming=True)
-    
-    print("Testing Enhanced TTS Handler...")
-    print(f"Coqui TTS available: {COQUI_AVAILABLE}")
-    print(f"PyAudio available: {PYAUDIO_AVAILABLE}")
-    
-    # Test regular speech
-    tts.speak("Hello, this is ARA, the adaptive real-time assistant. Testing enhanced local TTS capabilities.")
-    
-    # Test streaming (if enabled)
-    if tts.streaming:
-        print("\nTesting streaming TTS...")
-        tts.stream_speak("This is a test of real-time streaming text-to-speech. Each chunk should be processed and played as it becomes available.")
-    
-    # Show performance stats
-    stats = tts.get_performance_stats()
-    print(f"\nPerformance Stats: {stats}")
-    
-    # Cleanup
-    tts.cleanup()
-
-
-if __name__ == "__main__":
-    main()
-
-
-
+    def wait_for_completion(self, timeout: float = 30.0) -> bool:
+        """
+        Wait for TTS operations to complete.
+        
+        Args:
+            timeout (float): Maximum time to wait in seconds.
+            
+        Returns:
+            bool: True if completed, False if timed out.
+        """
+        start_time = time.time()
+        
+        # Wait for streaming to complete
+        while self.is_streaming and (time.time() - start_time) < timeout:
+            time.sleep(0.1)
+        
+        # Wait for audio queue to empty
+        while not self.audio_queue.empty() and (time.time() - start_time) < timeout:
+            time.sleep(0.1)
+        
+        # Additional buffer time for audio playback
+        time.sleep(0.5)
+        
+        if self.is_streaming:
+            self.logger.warning("TTS completion timeout, forcing stop")
+            self.stop_streaming()
+            return False
+        
+        return True
 

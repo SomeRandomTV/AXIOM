@@ -9,9 +9,10 @@ from typing import Optional
 
 # --- Constants ---
 # Use uppercase for constants as per PEP 8
-OLLAMA_PID_FILE = "ollama.pid"
+OLLAMA_PID_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ollama.pid")
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_NUM_CTX = 4096 # Context window for the model
+DEFAULT_MODEL = "llama3:latest"  # Use the actual model name you have installed
 
 """
 Module: OllamaClient
@@ -25,10 +26,11 @@ Ollama service lifecycle.
 class PromptHandler:
     def __init__(self,
                  url: str = DEFAULT_OLLAMA_BASE_URL,
-                 model: Optional[str] = None,
+                 model: Optional[str] = DEFAULT_MODEL,
                  system_prompt: Optional[str] = None,
                  stream: bool = False,
-                 log_level: int = logging.INFO) -> None:
+                 log_level: int = logging.INFO,
+                 pid_file: Optional[str] = None) -> None:
         """
         Initializes the Ollama client.
 
@@ -36,23 +38,26 @@ class PromptHandler:
             url (str): The base URL of the Ollama API.
                             Defaults to "http://localhost:11434".
             model (Optional[str]): The model to use for generating responses
-                                (e.g., "llama2", "mistral"). If None,
-                                it must be provided during method calls.
+                                (e.g., "llama3:latest", "phi3:latest"). If None,
+                                uses DEFAULT_MODEL.
             system_prompt (Optional[str]): A system-level instruction to
                                         set the context for the model's
                                         behavior. Defaults to None.
             stream (bool): If True, responses are streamed token by token.
                         If False, the complete response is returned at once.
                         Defaults to False.
+            pid_file (Optional[str]): Path to the Ollama PID file. If None,
+                                    uses the default path.
         """
         
         # --- Logger Setup ---
         self.logger = self._setup_logger(log_level)
         # --- API Configuration ---
         if not model:
-            self.logger.warning("No default model provided. You will need to specify a model for each API call.")
+            self.logger.warning(f"No model provided, using default: {DEFAULT_MODEL}")
+            model = DEFAULT_MODEL
         self.base_url: str = url
-        self.model: Optional[str] = model
+        self.model: str = model  # Now guaranteed to have a value
         self.system_prompt: Optional[str] = system_prompt
         self.stream: bool = stream
         self.chat_history: List[Dict[str, str]] = [] # Stores user/assistant messages for conversation context
@@ -65,8 +70,38 @@ class PromptHandler:
 
         # --- Manager Setup ---
         # The manager handles starting/stopping the Ollama service
-        self.manager = OllamaManager(OLLAMA_PID_FILE)
+        # Use provided PID file or default
+        self.pid_file = pid_file or OLLAMA_PID_FILE
+        self.manager = OllamaManager(self.pid_file, log_level)
         
+        # Validate model availability
+        self._validate_model()
+
+    def _validate_model(self):
+        """Validate that the specified model is available on the Ollama server."""
+        try:
+            self.logger.info(f"Validating model: {self.model}")
+            available_models = self.list_models()
+            model_names = [m.get('name', '') for m in available_models]
+            
+            if self.model not in model_names:
+                self.logger.warning(f"Model '{self.model}' not found in available models: {model_names}")
+                # Try to find a similar model
+                for available_model in model_names:
+                    if self.model.split(':')[0] in available_model:
+                        self.logger.info(f"Found similar model: {available_model}, using it instead")
+                        self.model = available_model
+                        break
+                else:
+                    self.logger.error(f"No suitable model found. Available: {model_names}")
+                    raise ValueError(f"Model '{self.model}' not available. Please install it with: ollama pull {self.model}")
+            else:
+                self.logger.info(f"Model '{self.model}' validated successfully")
+                
+        except Exception as e:
+            self.logger.error(f"Model validation failed: {e}")
+            # Don't raise here, let it fail gracefully during first use
+
     @staticmethod
     def _setup_logger(level: int) -> logging.Logger:
         """
@@ -86,16 +121,26 @@ class PromptHandler:
 
     def _ensure_ollama_running(self) -> None:
         """
-        Checks if the Ollama service is running and starts it if it's not.
-        Logs the startup process.
+        Checks if the Ollama service is running. 
+        Note: Service management is now handled at the main application level.
         """
+        # First check if there's an existing Ollama service running
+        try:
+            import requests
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            if response.status_code == 200:
+                self.logger.debug("Ollama service is responding to API calls.")
+                return
+        except:
+            pass
+        
+        # If API check fails, check PID file
         status = self.manager.check_ollama()
         if status != 0:
-            self.logger.info("=== Ollama Service Not Running: Initiating Startup Process ===")
-            self.manager.start_ollama()
-            self.logger.info("=== Ollama Service Started Successfully ===")
+            self.logger.warning("Ollama service appears to be down, but continuing...")
+            # Don't start it here - let the main application handle service lifecycle
         else:
-            self.logger.debug("Ollama service is already running.")
+            self.logger.debug("Ollama service is running.")
 
     def _prepare_chat_payload(self, prompt: str) -> Dict[str, Any]:
         """
@@ -187,10 +232,10 @@ class PromptHandler:
                            or None if an error occurs or the service is shut down.
         """
         if prompt.lower() in "/bye" or prompt.lower() in "bye":
-            self.logger.info("User requested shutdown: Initiating Ollama service stop.")
-            self.manager.stop_ollama()
-            return "Ollama service stopped. Goodbye!"
+            self.logger.info("User requested shutdown: Ollama service will be stopped by main application.")
+            return "Goodbye! Shutting down AXIom and Ollama service."
 
+        # Check if Ollama is running (but don't start it)
         self._ensure_ollama_running()
 
         try:
@@ -212,6 +257,9 @@ class PromptHandler:
                 self.chat_history.append({"role": "assistant", "content": model_response_content})
 
             return model_response_content
+        except requests.exceptions.ConnectionError:
+            self.logger.error("Cannot connect to Ollama API. Service may be down.")
+            return "I'm sorry, I cannot connect to the AI service. Please check if Ollama is running."
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error during chat request: {e}")
             return "I'm sorry, I encountered an error. Please try again later."
@@ -233,6 +281,7 @@ class PromptHandler:
         Raises:
             requests.exceptions.RequestException: If the API request fails.
         """
+        # Check if Ollama is running (but don't start it)
         self._ensure_ollama_running()
         try:
             response = self._make_api_request("/api/tags", method="get")
@@ -247,7 +296,7 @@ class PromptHandler:
         Note: This is typically a long-running operation.
 
         Args:
-            model_name (str): The exact name of the model to pull (e.g., "llama2:7b").
+            model_name (str): The exact name of the model to pull (e.g., "llama3:latest").
 
         Returns:
             Dict[str, Any]: The JSON response from the API, usually indicating status
@@ -256,6 +305,7 @@ class PromptHandler:
         Raises:
             requests.exceptions.RequestException: If the API request fails.
         """
+        # Check if Ollama is running (but don't start it)
         self._ensure_ollama_running()
         payload = {"name": model_name}
         try:
@@ -278,6 +328,7 @@ class PromptHandler:
         Raises:
             requests.exceptions.RequestException: If the API request fails.
         """
+        # Check if Ollama is running (but don't start it)
         self._ensure_ollama_running()
         payload = {"name": model_name}
         try:
@@ -305,6 +356,7 @@ class PromptHandler:
             requests.exceptions.RequestException: If the API request fails.
             ValueError: If no model is specified and no default is set.
         """
+        # Check if Ollama is running (but don't start it)
         self._ensure_ollama_running()
         chosen_model = model or self.model
         if not chosen_model:
@@ -324,6 +376,7 @@ class PromptHandler:
             return embedding
         except requests.exceptions.RequestException:
             self.logger.error(f"Failed to create embedding for prompt: '{prompt[:50]}...'")
+            raise
 
 
 
