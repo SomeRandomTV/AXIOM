@@ -32,17 +32,14 @@
 - Install dependencies:
 
   ```bash
-  pip install -r requirements.txt
-  ```
+   pip install -r requirements.txt
 
 ### Environment Configuration
 
 Create a `.env` file in the project root with the following API keys:
 
-```bash
+```
 # Required for external services
-WEATHER_API_KEY=your_weatherstack_api_key
-NEWS_API_KEY=your_newsapi_key
 
 # Optional configurations
 WHISPER_MODEL=base
@@ -93,16 +90,16 @@ src/AXIom/
    - ✅ **Chat History**: Context-aware conversations with persistent memory
 
 4. **Command Processing**
-   - ✅ **Slash Commands**: Structured commands like `/get weather for London`
-   - ✅ **Natural Language**: Conversational AI responses for general queries
-   - ✅ **Function Dispatch**: Automatic routing to appropriate handlers
-   - ✅ **Parameter Extraction**: Intelligent parsing of command arguments
+   - ❌ **Slash Commands**: Structured commands like `/get weather for London`
+   - ❌ **Natural Language**: Conversational AI responses for general queries
+   - ❌ **Function Dispatch**: Automatic routing to appropriate handlers
+   - ❌ **Parameter Extraction**: Intelligent parsing of command arguments
 
-5. **External Services**
-   - ✅ **Weather API**: Real-time weather information via WeatherStack
-   - ✅ **News API**: Current news retrieval via NewsAPI.org
-   - ✅ **Stock Data**: Stock information framework (extensible)
-   - ✅ **Google Services**: OAuth and Calendar integration framework
+5. **External Services(*TODO*)**
+   - ❌ **Weather API**: Real-time weather information via WeatherStack
+   - ❌ **News API**: Current news retrieval via NewsAPI.org
+   - ❌ **Stock Data**: Stock information framework (extensible)
+   - ❌ **Google Services**: OAuth and Calendar integration framework
 
 6. **System Management**
    - ✅ **Process Monitoring**: Comprehensive Ollama process detection and management
@@ -115,15 +112,8 @@ src/AXIom/
 ### Usage Examples
 
 #### Voice Commands
-- "What's the weather like in New York?"
-- "Tell me the latest news"
-- "Schedule a meeting tomorrow at 2 PM"
-- "What's the stock price of AAPL?"
+- For now just talk, no command execution yet
 
-#### Slash Commands
-- `/get weather for London`
-- `/get news for technology`
-- `/get stock for AAPL`
 
 #### Debug Commands
 - "ollama status" - Check Ollama service status
@@ -229,13 +219,13 @@ graph TB
 
 ### Basic Usage
 ```bash
-cd src/AXIom
-python main.py
+  cd src/AXIom
+  python main.py
 ```
 
 ### Debug Mode
 ```bash
-python main.py --debug-ollama
+  python main.py --debug-ollama
 ```
 
 ### Signal Handling
@@ -255,6 +245,7 @@ python main.py --debug-ollama
 - Performance monitoring and diagnostics
 
 ### 🔄 In Progress
+- Basic command execution
 - Enhanced error handling and recovery
 - Additional external service integrations
 - Performance optimizations
@@ -265,6 +256,7 @@ python main.py --debug-ollama
 - User preference management
 - Multi-language support
 - Advanced NLP capabilities
+- User creation/management
 
 ---
 
