@@ -1,18 +1,15 @@
-import requests
-from typing import Dict, List, Optional, Any
-import subprocess
-import psutil
-import os
+
+from typing import Dict, List, Any
 import logging
 import coloredlogs
 from typing import Optional
+import requests
 
 # --- Constants ---
 # Use uppercase for constants as per PEP 8
-OLLAMA_PID_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ollama.pid")
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_NUM_CTX = 4096 # Context window for the model
-DEFAULT_MODEL = "llama3:latest"  # Use the actual model name you have installed
+DEFAULT_NUM_CTX = 4096              # Context window for the model
+DEFAULT_MODEL = "llama3:latest"     # Use the actual model name you have installed
 
 """
 Module: OllamaClient
@@ -29,8 +26,8 @@ class PromptHandler:
                  model: Optional[str] = DEFAULT_MODEL,
                  system_prompt: Optional[str] = None,
                  stream: bool = False,
-                 log_level: int = logging.INFO,
-                 pid_file: Optional[str] = None) -> None:
+                 log_level: int = logging.INFO
+                 ) -> None:
         """
         Initializes the Ollama client.
 
@@ -46,8 +43,7 @@ class PromptHandler:
             stream (bool): If True, responses are streamed token by token.
                         If False, the complete response is returned at once.
                         Defaults to False.
-            pid_file (Optional[str]): Path to the Ollama PID file. If None,
-                                    uses the default path.
+
         """
         
         # --- Logger Setup ---
@@ -68,11 +64,6 @@ class PromptHandler:
         self.context: Optional[List[int]] = None  # Ollama's context token list (for future use if needed)
         self.template: Optional[str] = None  # Custom prompt template (for future use if needed)
 
-        # --- Manager Setup ---
-        # The manager handles starting/stopping the Ollama service
-        # Use provided PID file or default
-        self.pid_file = pid_file or OLLAMA_PID_FILE
-        self.manager = OllamaManager(self.pid_file, log_level)
         
         # Validate model availability
         self._validate_model()
@@ -126,21 +117,14 @@ class PromptHandler:
         """
         # First check if there's an existing Ollama service running
         try:
-            import requests
+
             response = requests.get("http://localhost:11434/api/tags", timeout=5)
             if response.status_code == 200:
                 self.logger.debug("Ollama service is responding to API calls.")
                 return
-        except:
+        except requests.exceptions.ConnectionError:
             pass
-        
-        # If API check fails, check PID file
-        status = self.manager.check_ollama()
-        if status != 0:
-            self.logger.warning("Ollama service appears to be down, but continuing...")
-            # Don't start it here - let the main application handle service lifecycle
-        else:
-            self.logger.debug("Ollama service is running.")
+
 
     def _prepare_chat_payload(self, prompt: str) -> Dict[str, Any]:
         """
@@ -378,248 +362,5 @@ class PromptHandler:
             self.logger.error(f"Failed to create embedding for prompt: '{prompt[:50]}...'")
             raise
 
-
-
-# --- Module-level Logger Configuration ---
-# Configure logging once at the module level for consistency.
-# This logger will be inherited by instances of OllamaManager.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-# Using __name__ for the logger name is a best practice.
-# It allows for more granular control over logging levels if needed later.
-module_logger = logging.getLogger(__name__)
-
-
-class OllamaManager:
-    """
-    Manages the lifecycle of the Ollama server process.
-    This includes starting, stopping, and checking the status of the
-    Ollama 'ollama serve' process using a PID file for tracking.
-    """
-
-    def __init__(self, pid_file: Optional[str] = None, log_level: int = logging.INFO):
-        """
-        Initializes the OllamaManager.
-
-        Args:
-            pid_file (Optional[str]): The path to the file where the Ollama
-                                      process ID (PID) will be stored.
-                                      If None, some operations (like checking/stopping)
-                                      will be limited or skipped.
-            log_level (int): The logging verbosity level (e.g., logging.INFO,
-                             logging.DEBUG). Defaults to logging.INFO.
-        """
-        self.pid_file = pid_file
-        # Use a dedicated instance logger, which can be configured independently
-        # if needed, but defaults to the module-level configuration.
-        self.logger = self._setup_logger(log_level)
-        self.logger.debug(f"OllamaManager initialized with PID file: {self.pid_file}")
-
-    @staticmethod
-    def _setup_logger(log_level: int) -> logging.Logger:
-        """
-        Configures and returns a logger instance for OllamaManager.
-        This static method ensures that coloredlogs is installed and applied
-        to the logger if it hasn't been already.
-
-        Args:
-            log_level (int): The desired logging level.
-
-        Returns:
-            logging.Logger: The configured logger instance.
-        """
-        logger = logging.getLogger("OllamaManager") # Use a consistent name for this manager's logs
-        logger.setLevel(log_level)
-
-        # Check if handlers are already configured to prevent duplicate logs
-        if not logger.handlers:
-            # Apply coloredlogs for better console output
-            fmt = "%(asctime)s [%(levelname)s] %(message)s"
-            coloredlogs.install(level=log_level, logger=logger, fmt=fmt)
-            logger.debug("Coloredlogs installed for OllamaManager logger.")
-        return logger
-
-    def check_ollama(self) -> int:
-        """
-        Checks if the Ollama server process is currently running.
-
-        Reads the PID from the configured PID file and verifies if a process
-        with that PID exists and is named "ollama".
-
-        Returns:
-            int:
-                0: Ollama is running.
-                -1: PID file path is not set (self.pid_file is None or empty).
-                -2: PID file does not exist.
-                -3: Process found, but its name is not "ollama" or it's not running.
-                -4: Error reading PID file or accessing process (e.g., permission denied).
-        """
-        if not self.pid_file:
-            self.logger.warning("PID file path is not configured. Cannot check Ollama status definitively.")
-            return -1
-        elif not os.path.exists(self.pid_file):
-            self.logger.info(f"PID file '{self.pid_file}' does not exist. Ollama is likely not running.")
-            return -2
-
-        try:
-            with open(self.pid_file, "r") as f:
-                pid_str = f.read().strip()
-                if not pid_str:
-                    self.logger.warning(f"PID file '{self.pid_file}' is empty. Ollama is likely not running.")
-                    return -4 # Treat as an error in PID file content
-                pid = int(pid_str)
-
-            # Check if the process exists and is indeed Ollama
-            proc = psutil.Process(pid)
-            # Check for "ollama" in the process name (case-insensitive)
-            # and ensure the process is still running.
-            if "ollama" in proc.name().lower() and proc.is_running():
-                self.logger.info(f"Ollama is running with PID: {pid}.")
-                return 0
-            else:
-                self.logger.warning(f"Process with PID {pid} found, but it's not the Ollama server "
-                                    f"('{proc.name()}' instead of 'ollama') or it's not running.")
-                return -3
-        except psutil.NoSuchProcess:
-            self.logger.info(f"No process found with PID from '{self.pid_file}'. Ollama is not running.")
-            # If the PID file exists but the process doesn't, it implies Ollama stopped
-            # unexpectedly or the PID file is stale.
-            return -3
-        except ValueError:
-            self.logger.error(f"PID file '{self.pid_file}' contains invalid PID. Please check its content.")
-            return -4
-        except Exception as e:
-            self.logger.error(f"An unexpected error occurred while checking Ollama status: {e}", exc_info=True)
-            return -4
-
-    def start_ollama(self) -> int:
-        """
-        Starts the Ollama server process.
-
-        If Ollama is already running, it will not attempt to start it again.
-        The PID of the new process is written to the configured PID file.
-
-        Returns:
-            int:
-                0: Ollama was successfully started or was already running.
-                -1: Failed to start Ollama (e.g., 'ollama' command not found, permissions issue).
-                -2: PID file path is not configured, preventing PID tracking.
-        """
-        if not self.pid_file:
-            self.logger.error("PID file path is not configured. Cannot start Ollama and track its PID.")
-            return -2
-
-        if self.check_ollama() == 0:
-            self.logger.info("Ollama is already running. No new process started.")
-            return 0
-
-        self.logger.info("Attempting to start Ollama server...")
-        try:
-            # Use `subprocess.Popen` to start `ollama serve` in the background.
-            # `preexec_fn=os.setsid` (for Unix-like systems) can detach the child
-            # process from the parent's session, making it less susceptible
-            # to being killed when the parent exits.
-            # `creationflags=subprocess.DETACHED_PROCESS` for Windows.
-            # For cross-platform, it's often simpler to rely on the PID file.
-            proc = subprocess.Popen(["ollama", "serve"],
-                                    stdout=subprocess.DEVNULL, # Suppress stdout
-                                    stderr=subprocess.DEVNULL) # Suppress stderr
-
-            # Write the PID to the file for later tracking
-            with open(self.pid_file, "w") as f:
-                f.write(str(proc.pid))
-            self.logger.info(f"Ollama server started successfully with PID: {proc.pid}. PID written to '{self.pid_file}'.")
-            return 0
-        except FileNotFoundError:
-            self.logger.error("Failed to start Ollama: 'ollama' command not found. "
-                              "Please ensure Ollama is installed and in your system's PATH.")
-            return -1
-        except Exception as e:
-            self.logger.error(f"An unexpected error occurred while trying to start Ollama: {e}", exc_info=True)
-            return -1
-
-    def stop_ollama(self) -> int:
-        """
-        Stops the running Ollama server process.
-
-        Attempts a graceful termination first (SIGTERM),
-        and if the process does not exit within a timeout,
-        it resorts to a forceful kill (SIGKILL).
-        The PID file is removed upon successful termination.
-
-        Returns:
-            int:
-                0: Ollama was successfully stopped or was not running.
-                -1: PID file path is not configured.
-                -2: Error during process termination (e.g., permissions).
-                -3: Failed to remove the PID file.
-        """
-        if not self.pid_file:
-            self.logger.error("PID file path is not configured. Cannot stop Ollama definitively.")
-            return -1
-
-        # Check current status to avoid errors if already stopped
-        status = self.check_ollama()
-        if status in [-1, -2, -3, -4]: # Ollama is not running or PID file issues
-            self.logger.info("Ollama server is not running or PID file is invalid. No stop action needed.")
-            # Attempt to clean up stale PID file if it exists but process doesn't
-            if os.path.exists(self.pid_file):
-                try:
-                    os.remove(self.pid_file)
-                    self.logger.info(f"Removed stale PID file: '{self.pid_file}'.")
-                except Exception as e:
-                    self.logger.error(f"Failed to remove stale PID file '{self.pid_file}': {e}")
-                    return -3 # Indicate PID file cleanup issue
-            return 0 # Indicate success in ensuring it's stopped
-
-        try:
-            with open(self.pid_file, "r") as f:
-                pid = int(f.read().strip())
-
-            proc = psutil.Process(pid)
-
-            # Double-check if it's indeed the Ollama process before terminating
-            if "ollama" not in proc.name().lower():
-                self.logger.warning(f"PID {pid} from PID file '{self.pid_file}' is not an Ollama process ('{proc.name()}'). "
-                                    "Skipping termination to prevent unintended process killing.")
-                return 0 # Consider it "stopped" from this manager's perspective
-
-            self.logger.info(f"Attempting to gracefully stop Ollama server (PID: {pid})...")
-            proc.terminate() # Send SIGTERM
-
-            try:
-                # Wait for the process to terminate, with a timeout
-                proc.wait(timeout=10)
-                self.logger.info("Ollama server stopped gracefully.")
-            except psutil.TimeoutExpired:
-                self.logger.warning("Ollama server did not terminate gracefully within 10 seconds. Forcibly killing...")
-                proc.kill() # Send SIGKILL
-                proc.wait() # Wait for the kill to complete
-                self.logger.info("Ollama server forcibly killed.")
-
-        except psutil.NoSuchProcess:
-            self.logger.info("Ollama process not found (it was likely already stopped).")
-            # This can happen if check_ollama returned 0, but the process died
-            # between check_ollama and this try block.
-        except ValueError:
-            self.logger.error(f"PID file '{self.pid_file}' contains invalid PID. Cannot stop process.")
-            return -2
-        except Exception as e:
-            self.logger.error(f"An unexpected error occurred while trying to stop Ollama: {e}", exc_info=True)
-            return -2
-        finally:
-            # Always attempt to remove the PID file if it exists, regardless of termination success
-            if os.path.exists(self.pid_file):
-                try:
-                    os.remove(self.pid_file)
-                    self.logger.info(f"Removed PID file: '{self.pid_file}'.")
-                except Exception as e:
-                    self.logger.error(f"Failed to remove PID file '{self.pid_file}': {e}", exc_info=True)
-                    return -3 # Indicate PID file cleanup issue
-
-        return 0
 
 

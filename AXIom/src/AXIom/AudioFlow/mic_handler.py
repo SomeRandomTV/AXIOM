@@ -38,7 +38,7 @@ class MicHandler:
         return logging.getLogger('MicHandler')
 
 
-    def set_mic_input(self):
+    def set_mic_input(self) -> str:
         """
         Transcribe the audio given by the microphone using openai-whisper
         """
@@ -61,5 +61,6 @@ class MicHandler:
             except Exception as e:
                 self.logger.error(f"Error transcribing audio: {e}")
 
-    def get_text(self):
         return self.text
+
+

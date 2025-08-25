@@ -1,466 +1,344 @@
-# main.py
-"""
-Main function
-All external files will be called here
-"""
 import os
-import time
 import sys
-from CmdCraft import cmd_handler as ch
-from CmdCraft import prompt_handler as ph
-from AudioFlow import tts_handler as te
-from AudioFlow import mic_handler as se
-from dotenv import load_dotenv
+import signal
+import logging
 
-load_dotenv()
+from AudioFlow import TTSHandler
+from AudioFlow import MicHandler
 
-# Test TTS import immediately
-print("Testing TTS import...")
-try:
-    print(f"TTS module imported: {te}")
-    print(f"TTSHandler class: {te.TTSHandler}")
-    print("✓ TTS import successful")
-except Exception as e:
-    print(f"✗ TTS import failed: {e}")
-    import traceback
-    traceback.print_exc()
+from CmdCraft import CommandHandler
+from CmdCraft import PromptHandler
 
-SYSTEM_PROMPT = "Your name is ARA(Adaptive real-time assistant, you are to keep your answers 1-3 sentences"
+from helpers.ollama_manager import OllamaManager
 
-def initialize_tts():
-    """Initialize TTS with enhanced capabilities and error handling."""
-    try:
-        print("🔊 Initializing TTS system...")
-        print(f"Current working directory: {os.getcwd()}")
-        print(f"Python path: {sys.path[:3]}...")  # Show first 3 paths
-        
-        # Initialize enhanced TTS handler with timeout protection
-        print("Creating TTSHandler instance...")
-        tts = te.TTSHandler(
-            lang='en',
-            streaming=True,  # Enable real-time streaming
-            timeout=15.0,    # 15 second timeout for TTS operations
-            log_level=te.logging.INFO
-        )
-        print("✓ TTSHandler instance created")
-        
-        # Test TTS functionality with explicit error handling
-        print("Testing TTS system...")
-        try:
-            print("Attempting to speak test message...")
-            tts.speak("TTS system initialized successfully.", timeout=10.0)
-            print("✓ TTS test speech completed")
-        except Exception as speech_error:
-            print(f"⚠ TTS test speech failed: {speech_error}")
-            import traceback
-            traceback.print_exc()
-            # Continue anyway, TTS might still work for other operations
-        
-        # Show available audio methods
-        audio_info = tts.get_audio_info()
-        print(f"✓ TTS initialized with audio methods: {tts.audio_methods}")
-        print(f"Audio info: {audio_info}")
-        
-        return tts
-        
-    except Exception as e:
-        print(f"✗ TTS initialization failed: {e}")
-        import traceback
-        traceback.print_exc()
-        print("Falling back to basic TTS...")
-        try:
-            # Fallback to basic TTS
-            tts = te.TTSHandler(streaming=False, timeout=10.0)
-            print("Testing fallback TTS...")
-            tts.speak("Basic TTS fallback initialized.", timeout=10.0)
-            print("✓ Fallback TTS working")
-            return tts
-        except Exception as fallback_error:
-            print(f"✗ TTS fallback also failed: {fallback_error}")
-            import traceback
-            traceback.print_exc()
-            print("⚠ No TTS functionality available")
-            return None
+SYSTEM_PROMPT = "You are a helpful AI assistant. Keep responses short and friendly."
 
-def initialize_ollama_service():
-    """Initialize and start Ollama service once at startup."""
-    try:
-        print("🤖 Initializing Ollama service...")
-        
-        # Import here to avoid circular imports
-        from CmdCraft.prompt_handler import OllamaManager
-        
-        # Create manager with the same PID file path
-        pid_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ollama.pid")
-        manager = OllamaManager(pid_file)
-        
-        # First check if Ollama is already responding to API calls
-        try:
-            import requests
-            response = requests.get("http://localhost:11434/api/tags", timeout=5)
-            if response.status_code == 200:
-                print("✓ Ollama service already running and responding")
-                return manager
-        except:
-            pass
-        
-        # If API check fails, check PID file
-        status = manager.check_ollama()
-        if status == 0:
-            print("✓ Ollama service already running (PID file)")
-            return manager
-        else:
-            print("Starting Ollama service...")
-            result = manager.start_ollama()
-            if result == 0:
-                print("✓ Ollama service started successfully")
-                # Wait a moment for service to fully initialize
-                time.sleep(2)
-                return manager
-            else:
-                print(f"✗ Failed to start Ollama service: {result}")
-                return None
-                
-    except Exception as e:
-        print(f"✗ Ollama service initialization failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+tts = None
+mic = None
+p_handler = None
+c_handler = None
+o_manager = None
 
-def shutdown_ollama_service(manager):
-    """Shutdown Ollama service gracefully."""
-    if manager:
-        try:
-            print("🛑 Shutting down Ollama service...")
-            manager.stop_ollama()
-            print("✓ Ollama service stopped")
-        except Exception as e:
-            print(f"⚠ Ollama shutdown warning: {e}")
 
-def initialize_components():
-    """Initialize all system components with error handling."""
-    print("Initializing components...")
-    
-    # Initialize command handler
-    try:
-        handler = ch.CommandHandler()
-        print("✓ Command handler initialized")
-    except Exception as e:
-        print(f"✗ Command handler failed: {e}")
-        return None, None, None, None
-    
-    # Initialize prompt handler
-    try:
-        # Use the same PID file path as the main Ollama service
-        pid_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ollama.pid")
-        p_handler = ph.PromptHandler(
-            model="llama3:latest", 
-            system_prompt=SYSTEM_PROMPT,
-            pid_file=pid_file
-        )
-        print("✓ Prompt handler initialized")
-    except Exception as e:
-        print(f"✗ Prompt handler failed: {e}")
-        return handler, None, None, None
-    
-    # Initialize TTS handler
-    tts = initialize_tts()
-    if not tts:
-        print("⚠ Continuing without TTS functionality")
-    
-    # Initialize microphone handler
-    try:
-        mic = se.MicHandler()
-        print("✓ Microphone handler initialized")
-    except Exception as e:
-        print(f"✗ Microphone handler failed: {e}")
-        return handler, p_handler, tts, None
-    
-    print("✓ All components initialized successfully")
-    return handler, p_handler, tts, mic
+def speak_and_wait(text: str, timeout: float = 15.0) -> None:
+    """
+    Helper function to speak text and wait for completion.
 
-def process_user_input(handler, p_handler, tts, mic, user_input):
-    """Process user input with enhanced error handling and TTS feedback."""
-    try:
-        print(f"User input: {user_input}")
-        
-        # Set and parse command
-        handler.set_command(user_input)
-        handler.parse_command()
-        
-        print("→ Function flag:", handler.function_flag)
-        
-        if handler.function_flag == 1:
-            # Function call path
-            print("→ Function call:", handler.function_call_name)
-            print("→ Target:", handler.function_params)
-            
-            if tts:
-                try:
-                    tts.speak("Calling function...", timeout=5.0)
-                    # Wait for audio to complete
-                    time.sleep(2)
-                except Exception as e:
-                    print(f"TTS feedback failed: {e}")
-            
-        else:
-            # LLM path
-            print("Going to LLM...")
-            
-            try:
-                result = p_handler.chat(user_input)
-                print(f"LLM Response: {result}")
-                
-                # Use enhanced TTS with streaming for better user experience
-                if tts:
-                    try:
-                        if len(result) > 100:  # Use streaming for long responses
-                            print("Using streaming TTS for long response...")
-                            tts.stream_speak(result, chunk_size=80, timeout=20.0)
-                            # Wait for streaming to complete
-                            time.sleep(3)
-                        else:
-                            print("Using regular TTS for short response...")
-                            tts.speak(result, timeout=10.0)
-                            # Wait for audio to complete
-                            time.sleep(2)
-                    except Exception as e:
-                        print(f"TTS failed: {e}")
-                        # Try fallback
-                        try:
-                            tts.speak("Response received.", timeout=5.0)
-                            time.sleep(2)
-                        except:
-                            pass
-                else:
-                    print("TTS not available, response displayed only")
-                    
-            except Exception as e:
-                print(f"✗ LLM processing failed: {e}")
-                if tts:
-                    try:
-                        tts.speak("Sorry, I encountered an error processing your request.", timeout=5.0)
-                        time.sleep(2)
-                    except:
-                        pass
-        
-        # Get function calls
-        command = handler.get_function_calls()
-        print(f"\nCommand: {command}")
-        
-        return True
-        
-    except ValueError as err:
-        print(f"→ Error: {err}")
-        if tts:
-            try:
-                tts.speak("I encountered an error processing your input.", timeout=5.0)
-                time.sleep(2)
-            except:
-                pass
-        return False
-    except Exception as e:
-        print(f"→ Unexpected error: {e}")
-        if tts:
-            try:
-                tts.speak("An unexpected error occurred.", timeout=5.0)
-                time.sleep(2)
-            except:
-                pass
-        return False
-
-def wait_for_audio_completion(tts, timeout=30):
-    """Wait for TTS audio to complete before proceeding."""
-    if not tts:
-        return True
-    
-    try:
-        print("Waiting for audio to complete...")
-        
-        # Use the TTS handler's built-in completion tracking
-        if hasattr(tts, 'wait_for_completion'):
-            completed = tts.wait_for_completion(timeout)
-            if completed:
-                print("✓ Audio completed successfully")
-            else:
-                print("⚠ Audio completion timeout")
-        else:
-            # Fallback method
-            if hasattr(tts, 'is_streaming') and tts.is_streaming:
-                print("Waiting for streaming audio to complete...")
-                start_time = time.time()
-                while tts.is_streaming and (time.time() - start_time) < timeout:
-                    time.sleep(0.1)
-                
-                if tts.is_streaming:
-                    print("Streaming timeout, forcing stop...")
-                    tts.stop_streaming()
-                else:
-                    print("Streaming completed")
-            
-            # Additional wait to ensure audio playback is finished
-            time.sleep(1)
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error waiting for audio completion: {e}")
-        return False
-
-def prompt_for_next_command(tts):
-    """Prompt user for next command after audio completion."""
+    Args:
+        text (str): Text to speak
+        timeout (float): Maximum time to wait for completion
+    """
+    global tts
     if tts:
-        try:
-            print("\n" + "="*50)
-            print("🎯 Ready for next command...")
-            tts.speak("Ready for your next command.", timeout=5.0)
-            # Wait for prompt audio to complete
-            time.sleep(2)
-        except Exception as e:
-            print(f"TTS prompt failed: {e}")
-    else:
-        print("\n" + "="*50)
-        print("🎯 Ready for next command...")
+        tts.speak(text, timeout=timeout)
+        # Wait for completion with timeout
+        tts.wait_for_completion(timeout=timeout)
 
-def test_tts_functionality(tts):
-    """Test TTS functionality with multiple methods."""
-    if not tts:
-        print("❌ No TTS available for testing")
-        return False
-    
-    print("\n🧪 Testing TTS functionality...")
-    
-    test_messages = [
-        "Hello, this is ARA speaking.",
-        "Testing audio playback.",
-        "System is ready for voice commands."
-    ]
-    
-    for i, message in enumerate(test_messages, 1):
-        try:
-            print(f"Test {i}: {message}")
-            tts.speak(message, timeout=8.0)
-            print(f"✓ Test {i} completed")
-            time.sleep(1)  # Brief pause between tests
-        except Exception as e:
-            print(f"✗ Test {i} failed: {e}")
-            return False
-    
-    print("✅ All TTS tests passed")
-    return True
+
+def initialize_stuff() -> tuple[TTSHandler, MicHandler, PromptHandler, CommandHandler, OllamaManager]:
+    """Initialize stuff like TTS and mic, command prompt, etc."""
+
+    global tts, mic, p_handler, c_handler, o_manager
+
+    print(f"{'=' * 15} Initializing the AXIom {'=' * 15}")
+
+    try:
+        # Initialize Ollama manager
+        pid_file = os.path.join(os.path.dirname(__file__), "ollama.pid")
+        o_manager = OllamaManager(pid_file)
+
+        print("Checking Ollama status...")
+        # Use the comprehensive check instead of basic check
+        status = o_manager.check_ollama_comprehensive()
+
+        if status['status'] == 0:
+            serve_processes = [p for p in status['processes'] if p['is_serve']]
+            if serve_processes:
+                print(f"Ollama is already running ({len(serve_processes)} serve process(es)).")
+            else:
+                print("Ollama processes found but no 'serve' processes. Starting Ollama...")
+                start_result = o_manager.start_ollama()
+                if start_result == 0:
+                    print("Ollama service started.")
+                else:
+                    print(f"Failed to start Ollama service (code: {start_result})")
+                    raise Exception(f"Ollama startup failed with code: {start_result}")
+        else:
+            print("No Ollama processes found. Starting Ollama service...")
+            start_result = o_manager.start_ollama()
+            if start_result == 0:
+                print("Ollama service started.")
+            else:
+                print(f"Failed to start Ollama service (code: {start_result})")
+                # Show diagnosis for troubleshooting
+                print("Ollama diagnosis:")
+                o_manager.print_diagnosis()
+                raise Exception(f"Ollama startup failed with code: {start_result}")
+
+        # Initialize TTS with proper settings
+        print("Initializing TTS handler...")
+        tts = TTSHandler(
+            lang="en",
+            streaming=False,  # Disable streaming for more reliable speech
+            timeout=15.0,  # Increase timeout for longer responses
+            log_level=logging.INFO
+        )
+
+        # Test TTS immediately after initialization
+        print("Testing TTS functionality...")
+        test_result = tts.test_audio()
+        if not test_result:
+            print("Warning: Audio test failed, but continuing...")
+
+        # Get audio info for diagnostics
+        audio_info = tts.get_audio_info()
+        print(f"Audio capabilities: {audio_info}")
+
+        # Initialize other components
+        mic = MicHandler()
+        p_handler = PromptHandler(system_prompt=SYSTEM_PROMPT)
+        c_handler = CommandHandler()
+
+        print(f"{'=' * 15} Initializing stuff complete {'=' * 15}")
+
+        # Use proper TTS method
+        speak_and_wait("Initializing stuff complete. Ready to chat.")
+
+        return tts, mic, p_handler, c_handler, o_manager
+
+    except Exception as e:
+        print(f"Error initializing stuff: {e}")
+
+        # If initialization fails, show comprehensive Ollama diagnosis
+        if o_manager:
+            print("\nOllama diagnostic information:")
+            o_manager.print_diagnosis()
+
+        # Clean up any partially initialized components
+        cleanup()
+        sys.exit(1)
+
+
+def cleanup():
+    """Cleanup stuff like TTS and mic, command prompt, etc."""
+
+    global tts, mic, p_handler, c_handler, o_manager
+
+    print(f"\n{'=' * 15} Cleaning up AXIom {'=' * 15}")
+
+    try:
+        # Cleanup TTS with proper method
+        if tts:
+            print("Cleaning up TTS handler...")
+            try:
+                # Use the actual cleanup method from TTSHandler
+                tts.cleanup()
+                print("TTS handler cleaned up.")
+            except Exception as e:
+                print(f"Warning: Could not cleanup TTS: {e}")
+
+        # Cleanup Microphone
+        if mic:
+            print("Cleaning up microphone handler...")
+            try:
+                if hasattr(mic, 'cleanup'):
+                    mic.cleanup()
+                elif hasattr(mic, 'stop'):
+                    mic.stop()
+                elif hasattr(mic, 'close'):
+                    mic.close()
+                print("Microphone handler cleaned up.")
+            except Exception as e:
+                print(f"Warning: Could not cleanup microphone: {e}")
+
+        # Cleanup Command Handler
+        if c_handler:
+            print("Cleaning up command handler...")
+            try:
+                if hasattr(c_handler, 'cleanup'):
+                    c_handler.cleanup()
+                print("Command handler cleaned up.")
+            except Exception as e:
+                print(f"Warning: Could not cleanup command handler: {e}")
+
+        # Cleanup Prompt Handler
+        if p_handler:
+            print("Cleaning up prompt handler...")
+            try:
+                if hasattr(p_handler, 'cleanup'):
+                    p_handler.cleanup()
+                print("Prompt handler cleaned up.")
+            except Exception as e:
+                print(f"Warning: Could not cleanup prompt handler: {e}")
+
+        # Enhanced Ollama cleanup
+        if o_manager:
+            print("Stopping Ollama service...")
+            try:
+                # Check if there are multiple processes or untracked processes
+                diagnosis = o_manager.diagnose_ollama_status()
+
+                if diagnosis['total_processes'] > 1:
+                    print(f"Found {diagnosis['total_processes']} Ollama processes. Using force stop to clean up all.")
+                    stop_result = o_manager.force_stop_all_ollama()
+                else:
+                    # Use normal stop for single tracked process
+                    stop_result = o_manager.stop_ollama()
+
+                if stop_result == 0:
+                    print("Ollama service stopped.")
+                else:
+                    print(f"Warning: Ollama stop returned code: {stop_result}")
+                    # Try force stop as fallback
+                    print("Attempting force stop as fallback...")
+                    force_result = o_manager.force_stop_all_ollama()
+                    if force_result == 0:
+                        print("Force stop successful.")
+                    else:
+                        print("Force stop also failed. Some processes may still be running.")
+
+            except Exception as e:
+                print(f"Warning: Could not stop Ollama service: {e}")
+                # Last resort: try force stop
+                try:
+                    print("Attempting emergency force stop...")
+                    o_manager.force_stop_all_ollama()
+                except Exception as force_e:
+                    print(f"Emergency force stop failed: {force_e}")
+
+        print(f"{'=' * 15} Cleanup complete {'=' * 15}")
+
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
+
+
+def signal_handler(signum, frame):
+    """Handle system signals for graceful shutdown"""
+    print(f"\nReceived signal {signum}, shutting down gracefully...")
+    cleanup()
+    sys.exit(0)
+
 
 def main():
-    """Main application loop with enhanced error handling and TTS integration."""
-    print("🚀 Starting AXIom - Adaptive Real-time Assistant")
-    print("=" * 50)
-    
-    # Initialize Ollama service first (stays running)
-    ollama_manager = initialize_ollama_service()
-    if not ollama_manager:
-        print("❌ Critical: Ollama service failed to start. Exiting.")
-        return
-    
-    # Initialize components
-    components = initialize_components()
-    if not components or not all(components):
-        print("❌ Critical component initialization failed. Exiting.")
-        shutdown_ollama_service(ollama_manager)
-        return
-    
-    handler, p_handler, tts, mic = components
-    
-    # Test TTS functionality before proceeding
-    if tts:
-        tts_working = test_tts_functionality(tts)
-        if not tts_working:
-            print("⚠ TTS tests failed, but continuing with limited functionality")
-    else:
-        print("⚠ No TTS available - running in text-only mode")
-    
-    print("\n🎯 AXIom is ready! Speak or type your commands.")
-    print("Type 'exit' or 'quit' to stop the application.")
-    print("-" * 50)
-    
-    # Main application loop
+    """Main application loop"""
+
+    global tts, mic, p_handler, c_handler, o_manager
+
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     try:
+        # Initialize components
+        tts, mic, p_handler, c_handler, o_manager = initialize_stuff()
+
+        # Test TTS functionality with proper method
+        print("\nTesting TTS functionality...")
+        speak_and_wait("Hello! I am AURA, your Adaptive Real-time Assistant. How can I help you today?")
+
+        # Main application loop
+        print("\nStarting main application loop...")
+        print("Say 'bye' or 'exit' to quit, or press Ctrl+C")
+        print("For debugging, you can also say 'ollama status' to check Ollama processes")
+
         while True:
             try:
-                # Prompt for next command (after previous audio completion)
-                prompt_for_next_command(tts)
-                
-                # Get microphone input
-                print("🎤 Listening...")
-                mic.set_mic_input()
-                user_input = mic.get_text()
-                
-                if not user_input or user_input.strip() == "":
+                # Get user input
+                print("\n" + "=" * 50)
+                user_input = mic.set_mic_input()
+                print(f"User input: {user_input}")
+
+                if not user_input:
+                    speak_and_wait("Sorry, I didn't get that. Please try again.")
                     continue
-                
+
                 # Check for exit commands
-                if user_input.lower() in ['exit', 'quit', 'stop', 'end', 'bye']:
-                    if tts:
-                        try:
-                            tts.speak("Shutting down AXIom. Goodbye!", timeout=5.0)
-                            # Wait for shutdown audio to complete
-                            time.sleep(3)
-                        except:
-                            pass
-                    print("\n👋 Shutting down AXIom. Goodbye!")
+                if user_input.lower() in ['bye', 'exit', 'quit', 'stop', 'goodbye']:
+                    print("Goodbye! Shutting down ARA...")
+                    speak_and_wait("Goodbye! Shutting down ARA.")
                     break
-                
-                # Process user input
-                success = process_user_input(handler, p_handler, tts, mic, user_input)
-                
-                if success:
-                    print("✓ Command processed successfully")
+
+                # Debug command to check Ollama status
+                if user_input.lower() in ['ollama status', 'check ollama', 'ollama debug']:
+                    print("\n=== Ollama Status Debug ===")
+                    o_manager.print_diagnosis()
+                    speak_and_wait("Ollama status information printed to console.")
+                    continue
+
+                # Special command for TTS performance stats
+                if user_input.lower() in ['tts stats', 'audio stats', 'performance stats']:
+                    stats = tts.get_performance_stats()
+                    print(f"\n=== TTS Performance Stats ===")
+                    for key, value in stats.items():
+                        print(f"{key}: {value}")
+                    speak_and_wait("TTS performance statistics printed to console.")
+                    continue
+
+                # Process the command
+                print("Processing your request...")
+
+                # Get response from Ollama
+                response = p_handler.chat(user_input)
+
+                # Speak the response using proper method
+                if response and response.strip():
+                    print(f"ARA: {response}")  # Show response in terminal too
+
+                    # Choose TTS method based on response length
+                    if len(response) > 200 and tts.streaming:
+                        # Use streaming for longer responses
+                        print("Using streaming TTS for long response...")
+                        tts.stream_speak(response, chunk_size=100, timeout=20.0)
+                        # Wait for streaming to complete
+                        tts.wait_for_completion(timeout=30.0)
+                    else:
+                        # Use regular speech for shorter responses
+                        speak_and_wait(response, timeout=20.0)
+
+                    print("Response complete. Ready for next command.")
                 else:
-                    print("⚠ Command processing had issues")
-                
-                # Wait for all audio to complete before next iteration
-                wait_for_audio_completion(tts)
-                
-                # Brief pause for system stability
-                time.sleep(0.5)
-                
+                    print("No response received.")
+                    # Check if Ollama is still running
+                    status = o_manager.check_ollama_comprehensive()
+                    if status['status'] != 0:
+                        print("Warning: Ollama may have stopped. Attempting to restart...")
+                        speak_and_wait("Connection issue detected. Attempting to restart service.")
+                        start_result = o_manager.start_ollama()
+                        if start_result == 0:
+                            speak_and_wait("Service restarted. Please try again.")
+                        else:
+                            speak_and_wait("Service restart failed. Please check the system.")
+                    else:
+                        speak_and_wait("I'm sorry, I didn't get a response. Please try again.")
+
             except KeyboardInterrupt:
-                print("\n\n🛑 Interrupted by user")
-                if tts:
-                    try:
-                        tts.speak("Interrupted by user.", timeout=3.0)
-                        time.sleep(2)
-                    except:
-                        pass
+                print("\nInterrupted by user...")
                 break
             except Exception as e:
-                print(f"\n💥 Unexpected error in main loop: {e}")
+                print(f"Error in main loop: {e}")
                 if tts:
-                    try:
-                        tts.speak("System error occurred.", timeout=3.0)
-                        time.sleep(2)
-                    except:
-                        pass
-                time.sleep(1)  # Brief pause before continuing
-                
+                    speak_and_wait("I encountered an error. Please try again.")
+
     except Exception as e:
-        print(f"\n💥 Critical error in main application: {e}")
-    finally:
-        # Cleanup
-        print("\n🧹 Cleaning up resources...")
+        print(f"Fatal error in main: {e}")
         if tts:
-            try:
-                tts.cleanup()
-                print("✓ TTS resources cleaned up")
-            except:
-                print("⚠ TTS cleanup failed")
-        
-        # Always shutdown Ollama service
-        shutdown_ollama_service(ollama_manager)
-        
-        print("✅ AXIom shutdown complete")
+            speak_and_wait("A fatal error occurred. Shutting down.")
+
+    finally:
+        cleanup()
+
+
+# Additional utility function for manual debugging
+def debug_ollama():
+    """Standalone function to debug Ollama issues"""
+    pid_file = os.path.join(os.path.dirname(__file__), "ollama.pid")
+    manager = OllamaManager(pid_file)
+    manager.interactive_management()
+
 
 if __name__ == "__main__":
-    main()
-
-
-
-
+    # Check if running in debug mode
+    if len(sys.argv) > 1 and sys.argv[1] == "--debug-ollama":
+        debug_ollama()
+    else:
+        main()
