@@ -4,6 +4,8 @@
 
 ---
 
+
+
 ## Overview
 
 **AXIOM** (Adaptive Real-time Assistant) is a Python-based voice-enabled AI assistant that processes voice commands, provides intelligent responses through local LLM integration, and automates various tasks. It features a modular architecture with speech recognition, text-to-speech synthesis, command processing, and external service integrations.
@@ -20,6 +22,7 @@
 - **Process Management:** Robust Ollama service lifecycle management with automatic startup/shutdown
 - **Cross-platform Audio:** Multiple audio playback methods (ffplay, afplay, PyAudio, file-based)
 - **Performance Monitoring:** TTS performance metrics and audio capability diagnostics
+- **API Metrics:** Comprehensive tracking of external API usage, response times, success rates, and error monitoring
 
 ---
 
@@ -106,6 +109,7 @@ src/AXIom/
    - ✅ **Graceful Shutdown**: Signal handling and resource cleanup
    - ✅ **Error Recovery**: Automatic service restart and fallback mechanisms
    - ✅ **Performance Diagnostics**: Comprehensive system health monitoring
+   - ✅ **API Metrics Tracking**: Comprehensive monitoring of all external API usage, response times, and success rates
 
 ---
 
@@ -118,6 +122,7 @@ src/AXIom/
 #### Debug Commands
 - "ollama status" - Check Ollama service status
 - "tts stats" - View TTS performance metrics
+- "api metrics" - View comprehensive API usage statistics
 
 ---
 
@@ -283,8 +288,110 @@ graph TB
 - "ollama status" - Service health check
 - "tts stats" - Audio performance metrics
 - "audio info" - System audio capabilities
+- "api metrics" - Comprehensive API usage statistics and performance metrics
 
 ---
+
+
+# AXIOM – Implementation Roadmap (Closest-to-done First)
+
+This roadmap prioritizes the shortest path to a fully working AXIOM, building on what’s already sketched out and requires minimal new dependencies.
+
+## Top priorities (fastest to value)
+
+1) TTS playback path (finalize and harden)
+- Do:
+  - Implement TTSHandler.speak(text) with ffplay first; fall back to afplay via temp file (afplay cannot read stdin).
+  - Broad try/except; fallback to file-based playback; clean up temp files.
+- Acceptance:
+  - Short text reliably speaks.
+  - No crashes if ffplay is missing; fallback works.
+
+2) PromptHandler as a thin HTTP client
+- Do:
+  - Implement chat(messages, stream=False) and generate(prompt, stream=False) with timeouts and clear error propagation.
+- Acceptance:
+  - “Hello” request returns text; HTTP errors/timeouts surface clearly.
+
+3) Minimal CommandHandler (LLM-only path first)
+- Do:
+  - Maintain simple conversation state.
+  - Normalize response for speaking (strip artifacts if needed).
+- Acceptance:
+  - handle_text("Hi") returns a single speakable reply string.
+
+4) Developer CLI loop in main (no mic yet)
+- Do:
+  - Wire PromptHandler + CommandHandler + TTS into a simple REPL.
+  - Graceful Ctrl+C; clean shutdown.
+- Acceptance:
+  - Type -> model response -> TTS speaks; process exits cleanly.
+
+## Next tier (useful utility, still low risk)
+
+5) FunctionHandler and basic tool routing
+- Do:
+  - Register 1–2 demo tools (e.g., time, echo).
+  - Simple intent heuristic (e.g., “tool:<name> …”) and integrate with CommandHandler.
+- Acceptance:
+  - “tool:time” returns and speaks current time; errors are handled gracefully.
+
+6) LLM process manager (lifecycle)
+- Do:
+  - start/stop/is_running/ensure_running with a PID file and idempotency.
+  - Use in startup/shutdown; bypass if server already running.
+- Acceptance:
+  - ensure_running is idempotent; graceful stop; PID file created/removed correctly.
+
+## Microphone and streaming (heavier lift)
+
+7) MicInput + STT integration
+- Do:
+  - Push-to-talk or fixed-duration record_once.
+  - Transcriber contract: transcribe(audio) -> text (local or remote STT).
+- Acceptance:
+  - Speaking produces text; routed via CommandHandler; TTS speaks response.
+
+8) Streaming LLM-to-TTS
+- Do:
+  - Token stream -> sentence/phrase buffering -> TTS queue worker.
+  - Handle back-pressure and early-cancel; avoid overlaps.
+- Acceptance:
+  - Progressive, low-latency speech without stutter.
+
+## Fit-and-finish (polish and resilience)
+
+9) Health checks, config, logging
+- Do:
+  - Single config source (model, base_url, audio backend, streaming, log level).
+  - Startup probes to confirm server + model availability.
+  - Consistent, leveled logging.
+- Acceptance:
+  - Clear startup diagnostics; meaningful errors when model/server missing.
+
+10) Error handling, retries, and tests
+- Do:
+  - Network timeouts + retries/backoff for LLM calls.
+  - Audio device busy/unavailable handling.
+  - Unit tests for PromptHandler and FunctionHandler; a smoke script for E2E.
+- Acceptance:
+  - Common failures don’t crash the app; tests and smoke check pass.
+
+## Suggested “fast wins” sequence
+
+- Day 1: Finish TTSHandler; implement PromptHandler; wire CLI loop; confirm type->speak E2E.
+- Day 2: Add CommandHandler conversation state; normalize outputs; add FunctionHandler with 1–2 tools; integrate.
+- Day 3: Add lifecycle manager (optional if server is manual); add health checks and central config.
+- Day 4–5: Implement MicInput + STT (start with a remote STT if possible); consider streaming TTS after non-streamed path is stable.
+
+## End-to-end acceptance test
+
+- Start the app.
+- Input: “What’s the weather like?” (or any test prompt).
+- If a matching tool exists, it’s called; otherwise the LLM responds.
+- The final text is spoken.
+- Shutdown: No dangling processes or temp files; PID file (if any) removed.
+
 
 ## Contributing
 

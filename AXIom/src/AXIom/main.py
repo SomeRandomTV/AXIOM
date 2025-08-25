@@ -274,6 +274,13 @@ def main():
                     speak_and_wait("TTS performance statistics printed to console.")
                     continue
 
+                # API usage metrics command
+                if user_input.lower() in ['api metrics', 'metrics', 'api usage', 'usage stats', 'api stats']:
+                    print("\n=== API Usage Metrics ===")
+                    c_handler.print_metrics()
+                    speak_and_wait("API usage metrics printed to console.")
+                    continue
+
                 # Process the command
                 print("Processing your request...")
 
