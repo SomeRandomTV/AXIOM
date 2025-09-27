@@ -75,3 +75,48 @@ class AxiomConfig:
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     event_bus: EventBusConfig = field(default_factory=EventBusConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+
+
+class ConfigManager:
+    """
+    Configuration manager that loads and validates configuration from multiple sources.
+
+    Priority order (highest to lowest):
+    1. Command-line arguments
+    2. Environment variables
+    3. Configuration files
+    4. Default values
+    """
+
+    def __init__(self, config_file_paths: Optional[List[Union[str, Path]]] = None):
+        """
+        Initialize the configuration manager.
+
+        :param config_file_paths: List of configuration file paths to try loading from
+        """
+
+        self.config_file_paths = config_file_paths or [
+            "axiom-config.yaml",
+            "axiom-config.yml",
+            "axiom-config.json",
+            "config/axiom-config.yaml",
+            "config/axiom-config.yml",
+            "config/axiom-config.json"
+        ]
+        self._loaded_config: Optional[AxiomConfig] = None
+
+    def load_config(self, config_file: Optional[Path] = None, environment: Optional[Path] = None, cli_args: Optional[Dict[str, Any]] = None) -> AxiomConfig:
+       """
+        Load configuration from all sources in priority order.
+
+        :param config_file: Path to specific config file (optional)
+        :param environment: name (development, production, etc.)
+        :param cli_args: Command-line arguments dictionary
+
+        :returns: Complete configuration object
+
+        :raises: ConfigurationError: If configuration is invalid
+        """
+
+       logging.info("Loading configuration from {}".format(config_file))
+
