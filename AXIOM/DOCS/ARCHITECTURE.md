@@ -127,7 +127,7 @@ Virtual Assistant Core
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ User Input  │───▶│     ASR     │───▶│   Dialog    │───▶│     TTS     │
-│ (Text/Audio)│    │ (Optional)  │    │  Manager    │    │ (Optional)  │
+│ (Text/Audio)│    │ (Optional)  │    │  Manager    │    │   CoquiTTS  │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
                                              │
                                              ▼
