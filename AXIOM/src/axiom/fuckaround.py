@@ -1,12 +1,12 @@
 import argparse
-import os
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-
 # BROKEN CONFIG SYSTEM - FIX ME!
+
 
 @dataclass
 class DatabaseConfig:
@@ -35,13 +35,12 @@ class AppConfig:
 class BrokenConfigManager:
     """This config manager has many problems - fix them!"""
 
-    def load_config(self, cli_config = Optional[argparse.Namespace]):
+    def load_config(self, cli_config=Optional[argparse.Namespace]):
         # PROBLEM: Only loads from one source
         config = AppConfig()
-        file_config = None # replace wtih load_from_file
-        env_config = None # replace with load_from_env
+        file_config = None  # replace wtih load_from_file
+        env_config = None  # replace with load_from_env
         cli_config = None
-
 
         # PROBLEM: No error handling
         try:
@@ -49,7 +48,6 @@ class BrokenConfigManager:
                 data = json.load(f)
         except FileNotFoundError as error:
             print(f"Error loading config: {error}")
-
 
         # PROBLEM: No type conversion or validation
         config.debug = data.get("debug", False)
@@ -154,6 +152,7 @@ if __name__ == "__main__":
 
 
 # BONUS CHALLENGES (Advanced)
+
 
 def bonus_challenge_1():
     """

@@ -23,17 +23,17 @@
 #### Project Setup
 - [X] Initialize Git repository with proper `.gitignore`
 - [X] Create Python package structure (`axiom/`)
-- [ ] Set up `pyproject.toml` / `setup.py` for dependencies
-- [ ] Configure development tools (pytest, black, pylint)
-- [ ] Create `requirements.txt` with core dependencies
-- [ ] Set up virtual environment and development workflow
+- [X] Set up `pyproject.toml` / `setup.py` for dependencies
+- [X] Configure development tools (pytest, black, pylint)
+- [X] Create `requirements.txt` with core dependencies
+- [X] Set up virtual environment and development workflow
 
 #### Configuration System
-- [ ] Implement `config.py` module
-  - [ ] JSON-based configuration loading
-  - [ ] Environment variable override support
-  - [ ] Command-line argument parsing
-  - [ ] Configuration validation and defaults
+- [X] Implement `config.py` module
+  - [X] JSON-based configuration loading
+  - [X] Environment variable override support
+  - [X] Command-line argument parsing
+  - [X] Configuration validation and defaults
 - [ ] Create default configuration files
 - [ ] Add configuration schema documentation
 

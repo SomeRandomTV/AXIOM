@@ -1,4 +1,27 @@
-**/.env/
-**/.axiom/
-**/logs/
-**/data/
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Distribution / packaging
+*.egg-info/
+build/
+dist/
+
+# IDEs
+.vscode/
+.idea/
+
+# Databases / local data
+*.db
+data/
+logs/
+
+# Coverage
+.coverage
+htmlcov/

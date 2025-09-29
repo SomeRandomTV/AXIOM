@@ -1,0 +1,25 @@
+{
+  "system": {
+    "debug": true,
+    "data_directory": "data",
+    "log_directory": "logs",
+    "version": "1.0.0-dev",
+    "startup_timeout": 30
+  },
+  "database": {
+    "path": "data/axiom.db",
+    "backup_enabled": false,
+    "backup_interval": "24h",
+    "max_connections": 2
+  },
+  "virtual_assistant": {
+    "response_timeout": 60,
+    "max_context_length": 256,
+    "max_response_length": 150
+  },
+  "policy": {
+    "max_tokens": 1000,
+    "temperature": 0.9,
+    "stop": ["TEST_STOP"]
+  }
+}
