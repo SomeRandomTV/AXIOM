@@ -34,8 +34,8 @@
   - [X] Environment variable override support
   - [X] Command-line argument parsing
   - [X] Configuration validation and defaults
-- [ ] Create default configuration files
-- [ ] Add configuration schema documentation
+- [X] Create default configuration files
+- [X] Add configuration schema documentation
 
 ### 🚌 **Event Bus Implementation**
 
