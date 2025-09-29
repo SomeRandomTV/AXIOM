@@ -198,6 +198,7 @@ class AxiomConfig:
     @classmethod
     def from_json_file(cls, file_path: Union[str, Path]) -> "AxiomConfig":
         path = Path(file_path)
+        print(f"Loading config from {path}")
         if not path.exists():
             raise ConfigurationError(f"Config file not found: {file_path}")
         with path.open("r") as f:
@@ -223,6 +224,8 @@ class AxiomConfig:
             system.log_directory = ROOT_DIR / system.log_directory
         if not database.path.is_absolute():
             database.path = ROOT_DIR / database.path
+
+
 
         return cls(
             system=system,
