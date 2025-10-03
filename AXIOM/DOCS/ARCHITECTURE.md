@@ -2,8 +2,8 @@
 
 **Document Version:** 1.0  
 **Date:** September 27, 2025  
-**Project:** AXIOM - Advanced eXtensible Interactive Operations Manager  
-**System:** ARA (Advanced Responsive Assistant) Core Runtime  
+**Project:** AXIOM - ARA's eXtensible Intent & Orchestrating Machine   
+**System:** ARA (Adaptive Real-Time Assistant) Core Runtime  
 
 ---
 
@@ -28,20 +28,14 @@
 
 ### 1.1 Purpose
 
-This Architecture Document describes the structural design of AXIOM Phase 1, the core runtime system for the Advanced Responsive Assistant (ARA) platform. It establishes the architectural foundation for a modular, extensible Virtual Assistant system with event-driven communication and persistent state management.
+This Architecture Document describes the structural design of AXIOM Phase 1, the core runtime system for the Adaptive Real-Time Assistant (ARA) platform. It establishes the architectural foundation for a modular, extensible Virtual Assistant system with event-driven communication and persistent state management.
 
 ### 1.2 Scope
 
 AXIOM Phase 1 focuses on establishing core architectural patterns and implementing a functional Virtual Assistant without sensor integration. The architecture is designed to support future expansion into comprehensive caregiver assistance, sensor monitoring, and advanced AI capabilities.
 
-### 1.3 Stakeholders
 
-- **Development Team**: Primary implementers of the system
-- **System Architects**: Responsible for architectural decisions and evolution
-- **Product Owners**: Define functional requirements and future roadmap
-- **Quality Assurance**: Validate architectural compliance and system behavior
-
-### 1.4 Architectural Goals
+### 1.3 Architectural Goals
 
 - **Modularity**: Loosely coupled components with well-defined interfaces
 - **Extensibility**: Support for future feature additions without major refactoring
@@ -69,7 +63,7 @@ AXIOM employs a **modular, event-driven architecture** with the following key ch
 │                    AXIOM Phase 1                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │   Console   │  │ Virtual     │  │    Event Bus        │  │
-│  │ Interface   │◄─┤ Assistant   │◄─┤   (Pub/Sub)        │  │
+│  │ Interface   │◄─┤ Assistant   │◄─┤   (Pub/Sub)         │  │
 │  │             │  │   Core      │  │                     │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 │                          │                    │             │
@@ -81,7 +75,8 @@ AXIOM employs a **modular, event-driven architecture** with the following key ch
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                               │
-                    ┌─────────▼─────────┐
+                              ▼
+                    ┌───────────────────┐
                     │  External World   │
                     │ (User, Hardware)  │
                     └───────────────────┘
@@ -122,12 +117,12 @@ Virtual Assistant Core
     └── Error Handling
 ```
 
-#### 3.1.2 Processing Pipeline
+#### 3.1.2 Processing Pipeline 
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │ User Input  │───▶│     ASR     │───▶│   Dialog    │───▶│     TTS     │
-│ (Text/Audio)│    │ (Optional)  │    │  Manager    │    │   CoquiTTS  │
+│ (Text/Audio)│    │             │    │  Manager    │    │   CoquiTTS  │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
                                              │
                                              ▼
@@ -136,6 +131,8 @@ Virtual Assistant Core
 │ (Text/Audio)│    │ Validation  │    │ Generation  │
 └─────────────┘    └─────────────┘    └─────────────┘
 ```
+
+#### 3.1.3 System Architecture 
 
 #### 3.1.3 Key Interfaces
 

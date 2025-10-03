@@ -18,10 +18,9 @@ AXIOM is the core orchestration engine powering **A.R.A. (Adaptive Real-Time Ass
 ## 📁 Project Architecture
 
 ```
-axiom-project/
+axiom/
 ├── 📄 pyproject.toml          # Project configuration and dependencies
 ├── 📄 requirements.txt        # Production dependencies
-├── 📄 requirements-dev.txt    # Development dependencies
 ├── 🚀 run.py                  # Main application entrypoint
 ├── 📖 README.md               # Project documentation
 ├── 📝 CHANGELOG.md            # Version history and updates
