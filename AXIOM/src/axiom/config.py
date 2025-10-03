@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# AXIOM/src/axiom/config.py
 """
 AXIOM Configuration Management with Dataclasses and Factories.
 
