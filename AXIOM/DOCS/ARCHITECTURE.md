@@ -169,6 +169,7 @@ class TTSInterface:
 class EventBus:
     def __init__(self):
         self._subscribers: Dict[str, List[Callable]] = {}
+        self._publishers: Dict[srr, List(Callable)]
         self._event_queue: Queue = Queue()
     
     def subscribe(self, event_type: str, handler: Callable) -> None

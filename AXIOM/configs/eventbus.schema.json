@@ -1,0 +1,28 @@
+{
+    "type": "object",
+    "properties": {
+        "topic": { "type": "string" },
+        "publisher": {
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "source": { "type": "string" },
+            "description": { "type": "string" },
+            "payload": { "type": "object" }
+        }
+        },
+        "subscriber": {
+            "type": "object",
+            "properties": {
+            "name": { "type": "string" },
+            "destination": { "type": "string" },
+            "handler": { "type": "string" },
+            "description": { "type": "string" },
+            "payload": { "type": "object" }
+        }
+    }
+    },
+    "required": ["topic", "publisher", "subscriber"]
+}
+
+
