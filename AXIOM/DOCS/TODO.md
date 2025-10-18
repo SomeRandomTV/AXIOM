@@ -14,6 +14,82 @@
 - ✅ **Persistent state** with SQLite
 - ✅ **Modular design** for future expansion
 
+
+## TODO: Urgent
+
+### pytest/bus
+
+- Implement Abstract class methods for other event types
+
+```python
+    def test_event_handler_type():
+>       handler = EventHandler()
+                  ^^^^^^^^^^^^^^
+E       TypeError: Can't instantiate abstract class EventHandler without an implementation for abstract methods 'get_supported_events', 'handle_event'
+
+tests/bus/test_handlers.py:5: TypeError
+```
+
+### pytest/policy
+
+- Fix Import Error
+
+```python
+ImportError: cannot import name 'ContentFilterPolicy' from 'axiom.policy.policies' (/Users/retr0/Desktop/ZiaTechnica/ARA/AXIOM/src/axiom/policy/policies.py
+```
+### pytest/va
+
+- test_event_bus_publish_subscribe: Import Asyncio
+```python
+    @pytest.mark.asyncio
+    async def test_event_bus_publish_subscribe():
+        bus = EventBus()
+        received = []
+        def handler(event):
+            received.append(event.event_type)
+        bus.register_publisher("test", [EventType.CONVERSATION_TURN.value])
+        bus.subscribe(EventType.CONVERSATION_TURN.value, handler)
+        await bus.publish(DummyEvent(EventType.CONVERSATION_TURN.value))
+>       await asyncio.sleep(0.05)  # allow handler to run
+              ^^^^^^^
+E       NameError: name 'asyncio' is not defined. Did you forget to import 'asyncio'
+
+tests/va/test_event_bus.py:19: NameError
+```
+
+- `test_pipeline_init`: type error
+```python
+    def test_pipeline_init():
+        bus = EventBus()
+>       pipeline = Pipeline(bus, patterns_dict=TEST_PATTERNS)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Pipeline.__init__() got an unexpected keyword argument 'patterns_dict'
+
+```
+
+- `test_pipeline_session`: unexpected keyword argument 'patterns_dict'
+```python
+
+    def test_pipeline_session():
+        bus = EventBus()
+>       pipeline = Pipeline(bus, patterns_dict=TEST_PATTERNS)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Pipeline.__init__() got an unexpected keyword argument 'patterns_dict'
+
+tests/va/test_pipeline.py:25: TypeError
+
+
+### Warnings Summary
+```python
+tests/va/test_pipeline.py:11
+  /Users/retr0/Desktop/ZiaTechnica/ARA/AXIOM/tests/va/test_pipeline.py:11: PytestCollectionWarning: cannot collect test class 'TestPipeline' because it has a __init__ constructor (from: tests/va/test_pipeline.py)
+    class TestPipeline(Pipeline):
+
+tests/va/test_event_bus.py::test_event_bus_register
+    def test_event_bus_register():
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+```
 ---
 
 ## 📋 Development Checklist
@@ -30,7 +106,6 @@
 
 #### Configuration System
 - [X] Implement `config.py` module
-  - [X] JSON-based configuration loading
   - [X] Environment variable override support
   - [X] Command-line argument parsing
   - [X] Configuration validation and defaults
@@ -38,43 +113,38 @@
 - [X] Add configuration schema documentation
 
 ### 🚌 **Event Bus Implementation**
-
 #### Core Event System
-- [ ] Implement `bus/event_bus.py`
-  - [ ] In-memory pub/sub mechanism
-  - [ ] Thread-safe event handling
-  - [ ] Async event processing
-  - [ ] Event queuing and delivery guarantees
-- [ ] Create `bus/events.py` for event type definitions
-- [ ] Implement `bus/handlers.py` for built-in event handlers
+- [X] Implement `bus/event_bus.py`
+  - [X] In-memory pub/sub mechanism
+  - [X] Thread-safe event handling
+  - [X]summary Async event processing
+  - [X] Event queuing and delivery guarantees
+- [X] Create `bus/events.py` for event type definitions
+- [X] Implement `bus/handlers.py` for built-in event handlers
 - [ ] Add event correlation ID support
-
 #### Event Types
-- [ ] Define `system.start` event structure
-- [ ] Define `system.shutdown` event structure  
-- [ ] Define `conversation.turn` event structure
-- [ ] Add event validation and serialization
+- [X] Define `system.start` event structure
+- [X] Define `conversation.turn` event structure
+- [X] Add event validation and serialization
 - [ ] Create event factory methods
 
 ### 🗄️ **State Store Implementation**
 
-#### Database Layer
-- [ ] Implement `state/store.py` with SQLite integration
-  - [ ] Database connection management
-  - [ ] ACID transaction support
-  - [ ] Connection pooling for thread safety
-  - [ ] Graceful error handling
-- [ ] Create `state/models.py` for data models
-- [ ] Implement database schema in `state/migrations/`
+- [X] Implement `state/store.py` with SQLite integration
+  - [X] Database connection management
+  - [X] ACID transaction support
+  - [X] Graceful error handling
+- [X] Create `state/models.py` for data models
+- [X] Implement database schema in `state/migrations/`
 
 #### Schema & Migrations
-- [ ] Design Phase 1 database schema
-  - [ ] `conversations` table
-  - [ ] `system_events` table
-  - [ ] Future expansion tables (placeholder)
-- [ ] Implement database migration system
-- [ ] Create initial migration script (`v001_initial.py`)
-- [ ] Add schema versioning support
+- [X] Design Phase 1 database schema
+  - [X] `conversations` table
+  - [X] `system_events` table
+  - [X] Future expansion tables (placeholder)
+- [X] Implement database migration system
+- [X] Create initial migration script (`v001_initial.py`)
+- [X] Add schema versioning support
 
 #### Data Access Methods
 - [ ] Implement conversation logging methods
@@ -86,65 +156,64 @@
 ### 🛡️ **Policy Engine Implementation**
 
 #### Basic Framework
-- [ ] Implement `policy/engine.py`
-  - [ ] Policy evaluation framework
-  - [ ] Policy registration and management
-  - [ ] Policy result handling and logging
-- [ ] Create `policy/policies.py` with basic policies
-  - [ ] Content filtering policy
-  - [ ] Response length validation
-  - [ ] Input sanitization policy
-  - [ ] Safety check policies
+- [X] Implement `policy/engine.py`
+  - [X] Policy evaluation framework
+  - [X] Policy registration and management
+  - [X] Policy result handling and logging
+- [X] Create `policy/policies.py` with basic policies
+  - [X] Response length validation
+  - [X] Input sanitization policy
+  - [X] Safety check policies
 
 #### Validation System
-- [ ] Implement `policy/validators.py`
-  - [ ] Input validation utilities
-  - [ ] Response validation checks
-  - [ ] Policy violation handling
+- [X] Implement `policy/validators.py`
+  - [X] Input validation utilities
+  - [X] Response validation checks
+  - [X] Policy violation handling
 - [ ] Add policy configuration support
 - [ ] Create policy audit logging
 
 ### 🤖 **Virtual Assistant Core**
 
 #### Pipeline Architecture
-- [ ] Implement `va/pipeline.py` - main orchestration
-  - [ ] Input processing pipeline
-  - [ ] Component coordination
-  - [ ] Error handling and recovery
+- [X] Implement `va/pipeline.py` - main orchestration
+  - [X] Input processing pipeline
+  - [X] Component coordination
+  - [X] Error handling and recovery
   - [ ] Performance monitoring
-- [ ] Create modular component interfaces
+- [X] Create modular component interfaces
 - [ ] Add pipeline configuration support
 
 #### Dialog Manager
-- [ ] Implement `va/dm.py` - Dialog Manager
-  - [ ] Rule-based intent detection engine
-  - [ ] Context management system
-  - [ ] Response generation coordination
-  - [ ] Conversation state tracking
-- [ ] Create `va/intents/` module structure
-  - [ ] Base intent detection interface (`base.py`)
-  - [ ] Rule-based intent detector (`rules.py`)
-  - [ ] Intent definitions and patterns
-- [ ] Implement `va/responses/` module structure
-  - [ ] Base response generator interface (`base.py`)
-  - [ ] Template-based responses (`templates.py`)
-  - [ ] Response selection logic
+- [X] Implement `va/dm.py` - Dialog Manager
+  - [X] Rule-based intent detection engine
+  - [X] Context management system
+  - [X] Response generation coordination
+  - [X] Conversation state tracking
+- [X] Create `va/intents/` module structure
+  - [X] Base intent detection interface (`base.py`)
+  - [X] Rule-based intent detector (`rules.py`)
+  - [X] Intent definitions and patterns
+- [X] Implement `va/responses/` module structure
+  - [X] Base response generator interface (`base.py`)
+  - [X] Template-based responses (`templates.py`)
+  - [X] Response selection logic
 
 #### Intent Detection (Rule-Based)
-- [ ] **Time queries** - "What time is it?", "What day is today?"
-- [ ] **Greetings** - "Hello", "Hi", "Good morning"
-- [ ] **Farewells** - "Goodbye", "See you later", "Bye"
-- [ ] **Caregiver notifications** - "Call my daughter", "Alert caregiver"
-- [ ] **Small talk** - Weather, how are you, general conversation
-- [ ] **Help requests** - "Help", "What can you do?"
-- [ ] Add intent confidence scoring
-- [ ] Create fallback intent for unrecognized input
+- [X] **Time queries** - "What time is it?", "What day is today?"
+- [X] **Greetings** - "Hello", "Hi", "Good morning"
+- [X] **Farewells** - "Goodbye", "See you later", "Bye"
+- [X] **Caregiver notifications** - "Call my daughter", "Alert caregiver"
+- [X] **Small talk** - Weather, how are you, general conversation
+- [X] **Help requests** - "Help", "What can you do?"
+- [X] Add intent confidence scoring
+- [X] Create fallback intent for unrecognized input
 
 #### Response Generation
-- [ ] Template-based response system
-- [ ] Context-aware response selection
+- [X] Template-based response system
+- [X] Context-aware response selection
 - [ ] Personality and tone consistency
-- [ ] Response variation to avoid repetition
+- [X] Response variation to avoid repetition
 - [ ] Integration with policy validation
 
 #### Optional Speech Components
@@ -162,14 +231,14 @@
 ### 💻 **Console Interface**
 
 #### CLI Framework
-- [ ] Implement `console/cli.py`
-  - [ ] Command-line argument parsing
-  - [ ] Interactive mode vs. command mode
-  - [ ] Session management
-  - [ ] Graceful shutdown handling
-- [ ] Create `console/repl.py` - Read-Eval-Print Loop
-  - [ ] Interactive conversation mode
-  - [ ] Command history support
+- [X] Implement `console/cli.py`
+  - [X] Command-line argument parsing
+  - [X] Interactive mode vs. command mode
+  - [X] Session management
+  - [X] Graceful shutdown handling
+- [X] Create `console/repl.py` - Read-Eval-Print Loop
+  - [X] Interactive conversation mode
+  - [X] Command history support
   - [ ] Tab completion for commands
   - [ ] Multi-line input support
 - [ ] Implement `console/commands.py`
@@ -178,16 +247,16 @@
   - [ ] Administrative commands
 
 #### Built-in Commands
-- [ ] **`help`** - Show available commands and usage
-- [ ] **`quit`** / **`exit`** - Graceful system shutdown
-- [ ] **`history`** - Show recent conversation history
-- [ ] **`status`** - Display system status and health
-- [ ] **`clear`** - Clear screen/conversation context
+- [X] **`help`** - Show available commands and usage
+- [X] **`quit`** / **`exit`** - Graceful system shutdown
+- [X] **`history`** - Show recent conversation history
+- [X] **`status`** - Display system status and health
+- [X] **`clear`** - Clear screen/conversation context
 - [ ] **`config`** - Show current configuration
 - [ ] Add command validation and error handling
 
 #### User Experience
-- [ ] Design clear, intuitive prompt format
+- [X] Design clear, intuitive prompt format
 - [ ] Add colored output support (optional)
 - [ ] Implement progress indicators for long operations
 - [ ] Create startup banner and system information
@@ -196,13 +265,13 @@
 ### 🔧 **System Bootstrap & Integration**
 
 #### Main Entry Point
-- [ ] Implement `core.py` - System bootstrap
-  - [ ] Component initialization sequence
+- [X] Implement `core.py` - System bootstrap
+  - [X] Component initialization sequence
   - [ ] Dependency injection setup
-  - [ ] Configuration loading and validation
-  - [ ] Graceful startup and shutdown
+  - [X] Configuration loading and validation
+  - [X] Graceful startup and shutdown
 - [ ] Create `run.py` - Application entry point
-- [ ] Add command-line interface integration
+- [X] Add command-line interface integration
 - [ ] Implement health check system
 
 #### Component Integration
@@ -215,26 +284,26 @@
 ### 🧪 **Testing Infrastructure**
 
 #### Unit Tests
-- [ ] Test framework setup with pytest
-- [ ] **Event Bus tests**
-  - [ ] Pub/sub functionality
-  - [ ] Thread safety
+- [X] Test framework setup with pytest
+- [X] **Event Bus tests**
+  - [X] Pub/sub functionality
+  - [X] Thread safety
   - [ ] Event delivery guarantees
-- [ ] **State Store tests**
-  - [ ] Database operations
-  - [ ] Migration scripts
-  - [ ] Data integrity
-- [ ] **Policy Engine tests**
-  - [ ] Policy evaluation
-  - [ ] Validation logic
+- [X] **State Store tests**
+  - [X] Database operations
+  - [X] Migration scripts
+  - [X] Data integrity
+- [X] **Policy Engine tests**
+  - [X] Policy evaluation
+  - [X] Validation logic
   - [ ] Policy combinations
-- [ ] **Virtual Assistant tests**
-  - [ ] Intent detection accuracy
-  - [ ] Response generation
-  - [ ] Pipeline orchestration
-- [ ] **Console Interface tests**
-  - [ ] Command parsing
-  - [ ] REPL functionality
+- [X] **Virtual Assistant tests**
+  - [X] Intent detection accuracy
+  - [X] Response generation
+  - [X] Pipeline orchestration
+- [X] **Console Interface tests**
+  - [X] Command parsing
+  - [X] REPL functionality
   - [ ] User interaction flows
 
 #### Integration Tests

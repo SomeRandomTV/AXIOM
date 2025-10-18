@@ -15,11 +15,13 @@
   "virtual_assistant": {
     "response_timeout": 60,
     "max_context_length": 256,
-    "max_response_length": 150
+    "max_response_length": 150,
+    "intent_config_path": "configs/intents.json"
   },
   "policy": {
     "max_tokens": 1000,
     "temperature": 0.9,
-    "stop": ["TEST_STOP"]
+    "stop": ["TEST_STOP"],
+    "banned_words": ["damn", "hell", "stupid", "idiot", "hate", "kill", "die"]
   }
 }

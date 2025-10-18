@@ -1,0 +1,53 @@
+{
+  "greeting": {
+    "patterns": [
+      "^hi(\\s|$)",
+      "^hello(\\s|$)",
+      "^hey(\\s|$)",
+      "good\\s*(morning|afternoon|evening)"
+    ]
+  },
+  "farewell": {
+    "patterns": [
+      "^bye(\\s|$)",
+      "goodbye",
+      "see you",
+      "good\\s*night"
+    ]
+  },
+  "time.query": {
+    "patterns": [
+      "what(?:'s| is) the time",
+      "current time",
+      "time now"
+    ]
+  },
+  "date.query": {
+    "patterns": [
+      "what(?:'s| is) (?:the )?date",
+      "what day is (?:it|today)",
+      "current date"
+    ]
+  },
+  "help.request": {
+    "patterns": [
+      "(?:can you )?help( me)?",
+      "what can you do",
+      "how do (?:i|you|we)"
+    ]
+  },
+  "caregiver.notify": {
+    "patterns": [
+      "(?:call|contact|alert|notify) (?:my )?(?:caregiver|nurse|doctor)",
+      "(?:i )?need (?:my )?(?:caregiver|nurse|doctor)",
+      "get (?:my )?(?:caregiver|nurse|doctor)"
+    ]
+  },
+  "smalltalk.how_are_you": {
+    "patterns": [
+      "how are you",
+      "how(?:'re| are) you doing",
+      "what'?s up"
+    ]
+  }
+}

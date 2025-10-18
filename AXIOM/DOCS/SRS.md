@@ -66,7 +66,7 @@ AXIOM serves as the central runtime for the ARA system, implementing a modular, 
 - **Input Format**: UTF-8 text strings / float32 np.ndarry audio
 - **Response Time**: < 500ms for input processing
 
-**REQ-VA-002**: The system MAY support speech input via Automatic Speech Recognition (ASR).
+**REQ-VA-002**: The system SHALL support speech input via Automatic Speech Recognition (ASR).
 - **Priority**: Low
 - **Supported Engines**: Whisper, Vosk, or equivalent
 - **Audio Format**: WAV, MP3, or standard audio formats

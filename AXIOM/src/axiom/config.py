@@ -127,11 +127,13 @@ class DatabaseConfig:
                 kwargs[field_name] = conv(val)
         return cls(**kwargs)
 
+
 @dataclass
 class VirtualAssistantConfig:
     response_timeout: int = 40
     max_context_length: int = 512
     max_response_length: int = 150
+    intent_config_path: Optional[str] = None
 
     def __post_init__(self):
         _validate_positive_int(self.response_timeout, "response_timeout")
@@ -155,11 +157,13 @@ class VirtualAssistantConfig:
                 kwargs[field_name] = conv(val)
         return cls(**kwargs)
 
+
 @dataclass
 class PolicyConfig:
     max_tokens: int = 1000
     temperature: float = 0.7
     stop: Optional[List[str]] = None
+    banned_words: Optional[list[str]] = None
 
     def __post_init__(self):
         if isinstance(self.stop, str):
