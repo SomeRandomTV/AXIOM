@@ -7,7 +7,7 @@ class ContentFilterPolicy(Policy):
     """Blocks inappropriate or disallowed content."""
     def __init__(self, banned_words=None):
         self.banned_words = banned_words or [
-            "damn", "hell", "stupid", "idiot", "hate", "kill", "die"
+            "damn", "hell", "stupid", "idiot", "hate", "kill", "die", "simon", ""
         ]
     def evaluate(self, context: PolicyContext) -> PolicyResult:
         text = context.user_input or context.response or ""

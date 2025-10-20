@@ -19,6 +19,7 @@ class Policy(ABC):
     """Abstract base class for policies."""
     @abstractmethod
     def evaluate(self, context: PolicyContext) -> PolicyResult:
+        
         pass
     
     @abstractmethod

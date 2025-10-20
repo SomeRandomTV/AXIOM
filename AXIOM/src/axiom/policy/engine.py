@@ -3,6 +3,8 @@
 import logging
 from typing import Dict, Any, Optional
 from typing import List
+import json
+from datetime import datetime
 
 from .policies import Policy, PolicyContext, PolicyResult
 
@@ -30,8 +32,6 @@ class PolicyEngine:
         """Write an audit log entry if enabled."""
         if not self._audit_log_enabled or not self.audit_log_path:
             return
-        import json
-        from datetime import datetime
         entry['timestamp'] = datetime.now().isoformat()
         try:
             with open(self.audit_log_path, 'a') as f:

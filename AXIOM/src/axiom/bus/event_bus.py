@@ -158,7 +158,7 @@ class EventBus:
         """
         # Verify publisher registration
         if event.source not in self._publishers or \
-           event.event_type not in self._publishers[event.source]:
+            event.event_type not in self._publishers[event.source]:
             raise UnregisteredPublisherError(
                 f"Publisher {event.source} is not registered to publish {event.event_type}"
             )
@@ -246,7 +246,7 @@ class EventBus:
                     f"Error delivering event {record.event} to {record.subscriber} "
                     f"(attempt {record.attempts}/{self._max_retry_attempts}): {e}"
                 )
-                
+
                 # Wait before retry
                 await asyncio.sleep(self._retry_delay.total_seconds())
         
