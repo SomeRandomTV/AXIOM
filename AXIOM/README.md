@@ -9,22 +9,21 @@ AXIOM is the core orchestration engine powering **A.R.A. (Adaptive Real-Time Ass
 ## 🌟 Key Features
 
 - **🚌 Event Bus Architecture** – Pub/sub event-driven system enabling decoupled, scalable communication
-- **💾 Persistent State Management** – SQLite-based persistence with migrations and structured schema models
+- **💾 Persistent State Management** – SQLite-based persistence with WAL mode and schema migrations
 - **🛡️ Policy Engine** – Built-in rule evaluation with comprehensive input/output validation
-- **🤖 Virtual Assistant Core** – Complete processing pipeline including ASR, Dialog Management, TTS, intent detection, and response generation
-- **💻 Interactive Console** – Feature-rich CLI tools and REPL for live debugging and system management
-- **🔧 Utility Suite** – Centralized logging, validation helpers, and shared utilities
+- **🤖 Virtual Assistant Core** – Complete dialog management pipeline with intent detection and response generation
+- **💻 Interactive Console** – Feature-rich CLI and REPL for live interaction and system management
+- **🧪 Comprehensive Testing** – Full pytest suite with unit and integration tests
 
 ## 📁 Project Architecture
 
 ```
 axiom/
 ├── 📄 pyproject.toml          # Project configuration and dependencies
-├── 📄 requirements.txt        # Production dependencies
-├── 🚀 run.py                  # Main application entrypoint
+├── 📄 setup.py                # Setup script
+├── 🚀 src/axiom/main.py       # Configuration demonstration
 ├── 📖 README.md               # Project documentation
-├── 📝 CHANGELOG.md            # Version history and updates
-├── 🙈 .gitignore             # Git ignore patterns
+├── 🙈 .gitignore              # Git ignore patterns
 │
 ├── 📂 src/
 │   └── 📂 axiom/
@@ -39,20 +38,19 @@ axiom/
 │       ├── 💻 console/        # CLI and REPL interfaces
 │       └── 🔧 utils/          # Shared utilities and helpers
 │
-├── ⚙️ config/                 # Configuration files
-├── 🧪 tests/                  # Test suites (unit & integration)
-├── 📚 docs/                   # Documentation
-├── 📊 data/                   # Data storage and assets
-├── 📋 logs/                   # Application logs
-└── 🔨 bin/                    # Executable scripts
+├── ⚙️ configs/                # Configuration files
+├── 🧪 tests/                  # Test suites (unit tests)
+├── 📚 DOCS/                   # Documentation
+├── 📊 data/                   # Data storage (SQLite database)
+└── 📋 logs/                   # Application logs
 ```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- **Python 3.10 or higher**
-- **pip** or [Poetry](https://python-poetry.org/) for dependency management
+- **Python 3.11 or higher**
+- **pip** for dependency management
 
 ### Installation
 
@@ -61,49 +59,86 @@ axiom/
 git clone https://github.com/yourusername/axiom-project.git
 cd axiom-project
 
-# Install dependencies
-pip install -r requirements.txt
+# Install in development mode (recommended)
+pip install -e .
 
-# For development (optional)
-pip install -r requirements-dev.txt
+# Or install with optional CLI dependencies
+pip install -e ".[cli]"
+
+# For development with testing tools
+pip install -e ".[dev]"
 ```
 
 ### Running AXIOM
 
 ```bash
-# Start the AXIOM orchestration engine
-python run.py
+# Start the interactive REPL console
+python -m axiom.console.cli
 
-# Alternative: Run with specific configuration
-python run.py --config production
+# With debug logging
+python -m axiom.console.cli --debug
+
+# View configuration examples
+python -m axiom.main
 ```
+
+### Using the Console
+
+Once in the REPL, you can:
+- **Chat with the assistant**: Just type your message
+- **View history**: Type `history` to see conversation log
+- **Check status**: Type `status` for system information
+- **View config**: Type `config` to see current settings
+- **Get help**: Type `help` for available commands
+- **Exit**: Type `quit` or `exit`
+
+Multi-line input is supported - end with a blank line.
 
 ## 🧪 Testing
 
-AXIOM includes comprehensive test coverage with both unit and integration tests:
+AXIOM includes comprehensive test coverage with pytest:
 
 ```bash
+# Install the package first
+pip install -e .
+
 # Run all tests
 pytest
 
 # Run with coverage report
 pytest --cov=src/axiom --cov-report=html
 
-# Run specific test categories
-pytest tests/unit/        # Unit tests only
-pytest tests/integration/ # Integration tests only
+# Run specific test modules
+pytest tests/va/          # Virtual assistant tests
+pytest tests/bus/         # Event bus tests
+pytest tests/state/       # State management tests
+pytest tests/policy/      # Policy engine tests
+pytest tests/console/     # Console interface tests
+
+# Run with verbose output
+pytest -v
+
+# Run with debug output
+pytest -s
 ```
 
 ## ⚙️ Configuration
 
 AXIOM uses a flexible configuration system supporting multiple environments:
 
-- **Configuration files**: Located in `config/` directory
+- **Configuration files**: Located in `configs/` directory
   - `default.json` – Base configuration
   - `production.json` – Production overrides
-  - `development.json` – Development settings
 
-Configuration is managed through `axiom/config.py` with automatic environment detection and value merging.
+- **Environment variables**: Override any config value
+  - `SYSTEM_DEBUG=true`
+  - `DB_PATH=/custom/path/axiom.db`
+  - `VA_MAX_RESPONSE_LENGTH=200`
+
+- **Command-line arguments**: 
+  - `--debug` – Enable debug logging
+
+Configuration is managed through `axiom.config` module with automatic environment detection and value merging. See [`DOCS/CONFIGURATION.md`](DOCS/CONFIGURATION.md) for full schema.
 
 ## 🏗️ Core Modules
 
@@ -129,20 +164,24 @@ Security and validation framework:
 
 ### 🤖 Virtual Assistant (`va/`)
 Complete AI assistant processing pipeline:
-- **ASR** (Automatic Speech Recognition)
 - **Dialog Management** with context awareness
-- **TTS** (Text-to-Speech) synthesis
-- **Intent Detection** and classification
-- **Response Generation** and formatting
+- **Intent Detection** using rule-based patterns
+- **Response Generation** with template system
+- **Event Publishing** for conversation tracking
+
+**Future Enhancements:**
+- ASR (Automatic Speech Recognition)
+- TTS (Text-to-Speech) synthesis
 
 ### 💻 Console Interface (`console/`)
 Developer tools and system management:
-- Interactive REPL for live debugging
+- Interactive REPL for conversations
 - CLI commands for system operations
-- Real-time monitoring and diagnostics
+- Command history and tab completion
+- Multi-line input support
 
 ### 🔧 Utilities (`utils/`)
-Shared infrastructure components:
+Shared infrastructure components (planned):
 - Centralized logging system
 - Validation helpers and decorators
 - Common utility functions
@@ -158,10 +197,13 @@ AXIOM implements a robust policy system that evaluates all actions before execut
 
 ## 📖 Documentation
 
-Comprehensive documentation is available in the `docs/` directory:
+Comprehensive documentation is available in the `DOCS/` directory:
 
 - **[Architecture Overview](DOCS/ARCHITECTURE.md)** – System design and component interactions
-- **[Developer Guide](DOCS/SRS.md)** – Software Requirement Specification
+- **[Software Requirements](DOCS/SRS.md)** – Software Requirement Specification
+- **[Configuration Guide](DOCS/CONFIGURATION.md)** – Configuration schema and examples
+- **[Pub/Sub Model](DOCS/PUBSUB.md)** – Event bus architecture
+- **[TODO List](DOCS/TODO.md)** – Development roadmap and progress
 
 
 ## 🏢 Project Ecosystem

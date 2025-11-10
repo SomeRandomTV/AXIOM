@@ -1,6 +1,5 @@
 from typing import Dict, List, Callable, Set, Optional
 from queue import Queue
-import logging
 import asyncio
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
@@ -12,8 +11,10 @@ from .exceptions import (
     EventBusException, InvalidEventTypeError,
     UnregisteredPublisherError, EventDeliveryError
 )
+from axiom.utils.logging import get_logger, log_event_bus_activity, PerformanceLogger, log_error
+from axiom.utils.errors import ErrorCode, EventBusError
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 @dataclass
 class DeliveryRecord:
@@ -67,15 +68,27 @@ class EventBus:
         self._executor = ThreadPoolExecutor(max_workers=num_workers)
         self._running = False
         
+        logger.info(
+            "Event bus initialized",
+            max_events=max_events,
+            max_retry_attempts=max_retry_attempts,
+            retry_delay_seconds=retry_delay.total_seconds(),
+            num_workers=num_workers
+        )
+        
     async def start(self) -> None:
         """Start the event processing loop."""
+        logger.info("Starting event bus processing loop")
         self._running = True
+        
         await self._process_events_loop()
         
     async def stop(self) -> None:
         """Stop the event processing loop."""
+        logger.info("Stopping event bus processing loop")
         self._running = False
         self._executor.shutdown(wait=True)
+        logger.info("Event bus stopped")
         
     def register_publisher(self, publisher_name: str, event_types: List[str]) -> None:
         """
@@ -91,13 +104,24 @@ class EventBus:
         # Validate event types
         invalid_types = [et for et in event_types if et not in EventType.values()]
         if invalid_types:
+            error = EventBusError(
+                error_code=ErrorCode.BUS_INVALID_EVENT_TYPE,
+                message=f"Invalid event types: {invalid_types}",
+                details={"invalid_types": invalid_types, "publisher": publisher_name}
+            )
+            log_error(logger, error)
             raise InvalidEventTypeError(f"Invalid event types: {invalid_types}")
             
         with self._lock:
             if publisher_name not in self._publishers:
                 self._publishers[publisher_name] = set()
             self._publishers[publisher_name].update(event_types)
-            logger.debug(f"Registered publisher {publisher_name} for events: {event_types}")
+            log_event_bus_activity(
+                logger,
+                event_type=",".join(event_types),
+                action="publisher_registered",
+                publisher=publisher_name
+            )
     
     def unregister_publisher(self, publisher_name: str) -> None:
         """
@@ -123,13 +147,24 @@ class EventBus:
             InvalidEventTypeError: If event type is not valid
         """
         if event_type not in EventType.values():
+            error = EventBusError(
+                error_code=ErrorCode.BUS_INVALID_EVENT_TYPE,
+                message=f"Invalid event type: {event_type}",
+                details={"event_type": event_type}
+            )
+            log_error(logger, error)
             raise InvalidEventTypeError(f"Invalid event type: {event_type}")
             
         with self._lock:
             if event_type not in self._subscribers:
                 self._subscribers[event_type] = set()
             self._subscribers[event_type].add(handler)
-            logger.debug(f"Added subscriber for event type: {event_type}")
+            log_event_bus_activity(
+                logger,
+                event_type=event_type,
+                action="subscriber_added",
+                handler=handler.__name__ if hasattr(handler, '__name__') else str(handler)
+            )
     
     def unsubscribe(self, event_type: str, handler: Callable[[Event], None]) -> None:
         """
@@ -156,21 +191,44 @@ class EventBus:
         Raises:
             UnregisteredPublisherError: If publisher is not registered for this event type
         """
-        # Verify publisher registration
-        if event.source not in self._publishers or \
-            event.event_type not in self._publishers[event.source]:
-            raise UnregisteredPublisherError(
-                f"Publisher {event.source} is not registered to publish {event.event_type}"
-            )
-        
-        # Add event to queue
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            self._executor, 
-            self._event_queue.put,
-            event
-        )
-        logger.debug(f"Published event: {event}")
+        with PerformanceLogger(logger, "event_publish", event_type=event.event_type, source=event.source):
+            # Verify publisher registration
+            if event.source not in self._publishers or \
+                event.event_type not in self._publishers[event.source]:
+                error = EventBusError(
+                    error_code=ErrorCode.BUS_UNREGISTERED_PUBLISHER,
+                    message=f"Publisher {event.source} is not registered to publish {event.event_type}",
+                    details={"publisher": event.source, "event_type": event.event_type}
+                )
+                log_error(logger, error)
+                raise UnregisteredPublisherError(
+                    f"Publisher {event.source} is not registered to publish {event.event_type}"
+                )
+            
+            # Add event to queue
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    self._executor, 
+                    self._event_queue.put,
+                    event
+                )
+                log_event_bus_activity(
+                    logger,
+                    event_type=event.event_type,
+                    action="event_published",
+                    source=event.source,
+                    correlation_id=event.correlation_id
+                )
+            except Exception as e:
+                error = EventBusError(
+                    error_code=ErrorCode.BUS_QUEUE_FULL,
+                    message="Failed to add event to queue",
+                    details={"event": str(event), "error": str(e)},
+                    retry_allowed=True
+                )
+                log_error(logger, error)
+                raise
     
     async def _process_events_loop(self) -> None:
         """Main event processing loop."""

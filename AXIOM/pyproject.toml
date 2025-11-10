@@ -8,6 +8,8 @@ version = "1.0.0"
 dependencies = [
     "typing_extensions>=4.0.0",
     "python-dotenv>=1.0.0",       # For env var loading
+    "structlog>=24.0.0",          # Structured logging
+    "psutil>=5.9.0",              # System monitoring (health checks)
 ]
 requires-python = ">=3.11"
 authors = [

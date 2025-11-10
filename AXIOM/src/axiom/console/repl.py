@@ -2,14 +2,17 @@
 
 
 import sys
-import logging
 from typing import List
 from ..va.pipeline import Pipeline
 from ..bus.event_bus import EventBus
 from ..config import AxiomConfig, ROOT_DIR
+from ..utils.logging import get_logger, setup_logging
+from ..utils.health import HealthChecker
+from ..utils.shutdown import register_shutdown_handler
 import asyncio
+import json
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class REPL:
     """
@@ -36,7 +39,8 @@ class REPL:
             "history": self._cmd_history,
             "status": self._cmd_status,
             "clear": self._cmd_clear,
-            "config": self._cmd_config
+            "config": self._cmd_config,
+            "health": self._cmd_health
         }
         # Tab completion setup
         try:
@@ -125,6 +129,43 @@ class REPL:
     def _cmd_status(self):
         print("System status: Running")
     
+    def _cmd_health(self):
+        """Run health check on all AXIOM components."""
+        print("Running health checks...")
+        print("=" * 60)
+        
+        checker = HealthChecker()
+        
+        # Run health checks on available components
+        results = checker.check_all(
+            event_bus=self._event_bus,
+            dialog_manager=self._pipeline.dialog_manager if hasattr(self._pipeline, 'dialog_manager') else None,
+            config=self._config if hasattr(self, '_config') else None
+        )
+        
+        # Display results
+        for component, result in results.items():
+            status_symbol = {
+                "healthy": "✓",
+                "degraded": "⚠",
+                "unhealthy": "✗"
+            }.get(result.status.value, "?")
+            
+            critical_marker = " [CRITICAL]" if result.critical else ""
+            print(f"{status_symbol} {component.upper()}{critical_marker}: {result.message}")
+            
+            if result.details:
+                for key, value in result.details.items():
+                    print(f"    {key}: {value}")
+        
+        print("=" * 60)
+        
+        if checker.is_healthy():
+            print("✓ All critical systems operational")
+        else:
+            print("✗ Some critical systems unhealthy")
+    
     def _cmd_clear(self):
+        """Clear conversation history."""
         self._history.clear()
         print("Conversation history cleared.")
