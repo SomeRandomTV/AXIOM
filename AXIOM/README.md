@@ -199,7 +199,9 @@ AXIOM implements a robust policy system that evaluates all actions before execut
 
 Comprehensive documentation is available in the `DOCS/` directory:
 
+- **[System Diagrams](DOCS/SYSTEM_DIAGRAMS.md)** – Visual architecture and flow diagrams
 - **[Architecture Overview](DOCS/ARCHITECTURE.md)** – System design and component interactions
+- **[Implementation Summary](DOCS/IMPLEMENTATION_SUMMARY.md)** – Phase 1 features and usage
 - **[Software Requirements](DOCS/SRS.md)** – Software Requirement Specification
 - **[Configuration Guide](DOCS/CONFIGURATION.md)** – Configuration schema and examples
 - **[Pub/Sub Model](DOCS/PUBSUB.md)** – Event bus architecture
